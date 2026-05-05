@@ -80,7 +80,7 @@ def _cmd_init(args: argparse.Namespace) -> int:
     print("Add this to your MCP client config:")
     print(json.dumps({
         "mcpServers": {
-            "scry": {"command": "scry", "cwd": str(target)}
+            "scry": {"command": "scry"}
         }
     }, indent=2))
     return 0

@@ -32,15 +32,16 @@ Then add it to your MCP client config:
 {
   "mcpServers": {
     "scry": {
-      "command": "scry",
-      "cwd": "/path/to/your/project"
+      "command": "scry"
     }
   }
 }
 ```
 
-Bare `scry` (no subcommand) starts the MCP server over stdio — that's
-what Claude calls. Other subcommands:
+The MCP client inherits cwd from wherever it's launched, and scry walks
+up from there looking for an `agent/` directory — so the same config
+works for any project. Bare `scry` (no subcommand) starts the MCP
+server over stdio — that's what Claude calls. Other subcommands:
 
 | Command | Purpose |
 |---|---|
