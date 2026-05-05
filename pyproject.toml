@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scry"
+version = "0.1.0"
+description = "Marker-indexed SQL cache MCP server"
+requires-python = ">=3.11"
+dependencies = [
+    "mcp>=1.0",
+    "watchdog>=4.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+scry = ["migrations/*.sql"]
