@@ -7,6 +7,4 @@ build/
 dist/
 .venv/
 .pytest_cache/
-agent/drivers/@*/scry/data/
-agent/drivers/@*/scry/runtime/
 *.scratch.md

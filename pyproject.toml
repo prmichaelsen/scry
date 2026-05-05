@@ -3,10 +3,25 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "scry"
-version = "0.1.0"
+name = "scry-mcp"
+version = "0.2.0"
 description = "Marker-indexed SQL cache MCP server"
+readme = "README.md"
 requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Patrick Michaelsen", email = "michaelsenpatrick@gmail.com" }]
+keywords = ["mcp", "sqlite", "markers", "indexing", "claude", "fts5"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Topic :: Software Development",
+    "Topic :: Database",
+    "Topic :: Text Processing :: Indexing",
+]
 dependencies = [
     "mcp>=1.0",
     "watchdog>=4.0",
@@ -18,6 +33,14 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
 ]
+
+[project.urls]
+Homepage = "https://github.com/prmichaelsen/scry"
+Repository = "https://github.com/prmichaelsen/scry"
+Issues = "https://github.com/prmichaelsen/scry/issues"
+
+[project.scripts]
+scry = "scry.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,0 +1,3 @@
+# scry runtime + cache — fully reconstructable from disk, do not commit.
+data/
+runtime/
