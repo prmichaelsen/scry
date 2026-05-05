@@ -4,6 +4,15 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-05-05
+
+### Fixed
+
+- Lowered `requires-python` from `>=3.11` to `>=3.10`. The code already
+  uses `from __future__ import annotations` and no 3.11-only features,
+  so the higher floor was unnecessarily blocking installs. The `mcp`
+  dependency itself caps the floor at 3.10.
+
 ## [0.2.0] - 2026-05-05
 
 ### Added

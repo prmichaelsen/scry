@@ -4,15 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scry-mcp"
-version = "0.2.0"
+version = "0.2.1"
 description = "Marker-indexed SQL cache MCP server"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Patrick Michaelsen", email = "michaelsenpatrick@gmail.com" }]
 keywords = ["mcp", "sqlite", "markers", "indexing", "claude", "fts5"]
 classifiers = [
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
