@@ -6,11 +6,13 @@ from scry.tools._common import serialize
 
 
 async def scry_scrub() -> str:
-    """Create a `<branch>--clean` git branch with all @scry.* markers removed
-    and the agent/ directory deleted. Refuses to run on main/master or with a
-    dirty working tree. Leaves changes unstaged for review.
+    """Create a clean PR branch with all @scry.* markers stripped and agent/
+    directory removed. For submitting code review without exposing agent
+    infrastructure.
 
-    Returns JSON describing the new branch and stripped files, or
-    {"error": "..."} on rejection.
+    Creates {branch}--clean from current HEAD. Does not stage or commit —
+    leaves unstaged changes for the user.
+
+    Fails if on main/master or if working tree is dirty.
     """
     return serialize(scrub())

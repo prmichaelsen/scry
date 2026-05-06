@@ -47,6 +47,43 @@ def _is_ephemeral(rel_path: str) -> int:
     return 1 if rel_path.endswith(".scratch.md") else 0
 
 
+def _under_agent(rel_path: str) -> bool:
+    norm = rel_path.replace("\\", "/")
+    return norm == "agent" or norm.startswith("agent/")
+
+
+def _record_warnings(conn: sqlite3.Connection, parsed, rel_path: str) -> int:
+    """Replace any prior warnings for `rel_path` with the current state.
+
+    Rule: docs belong inside `agent/`; files describe non-agent source.
+    Misplaced markers are still indexed, just flagged.
+    """
+    conn.execute("DELETE FROM scry__warning WHERE file_path = ?", (rel_path,))
+    in_agent = _under_agent(rel_path)
+    n = 0
+    if not in_agent:
+        for d in parsed.docs:
+            conn.execute(
+                """
+                INSERT INTO scry__warning(kind, marker_kind, marker_id, file_path, message)
+                VALUES ('misplaced_doc', 'doc', ?, ?, ?)
+                """,
+                (d.id, rel_path, f"@scry.doc {d.id!r} found outside agent/. Move to agent/."),
+            )
+            n += 1
+    if in_agent:
+        for f in parsed.files:
+            conn.execute(
+                """
+                INSERT INTO scry__warning(kind, marker_kind, marker_id, file_path, message)
+                VALUES ('misplaced_file', 'file', ?, ?, ?)
+                """,
+                (f.id, rel_path, f"@scry.file {f.id!r} found inside agent/. File markers describe non-agent source."),
+            )
+            n += 1
+    return n
+
+
 def upsert_doc(conn: sqlite3.Connection, marker: DocMarker, rel_path: str) -> None:
     h = content_hash(marker.raw_body)
     row = conn.execute(
@@ -257,6 +294,8 @@ def reindex_file(conn: sqlite3.Connection, abs_path: Path, project_root: Path) -
     for test in parsed.tests:
         upsert_test(conn, test, rel_path)
 
+    _record_warnings(conn, parsed, rel_path)
+
     conn.commit()
     return parsed
 
@@ -275,6 +314,7 @@ def handle_file_deletion(conn: sqlite3.Connection, rel_path: str) -> None:
     conn.execute("DELETE FROM scry__anchor WHERE current_path = ?", (rel_path,))
     conn.execute("DELETE FROM scry__impl WHERE file_path = ?", (rel_path,))
     conn.execute("DELETE FROM scry__test WHERE file_path = ?", (rel_path,))
+    conn.execute("DELETE FROM scry__warning WHERE file_path = ?", (rel_path,))
     conn.commit()
 
 
@@ -287,6 +327,9 @@ def surface(
     root = project_root or get_project_root()
     visited_paths: set[str] = set()
     counts = {"files_scanned": 0, "markers_indexed": 0}
+
+    # Warnings are derived state — wipe and rebuild from the live walk.
+    conn.execute("DELETE FROM scry__warning")
 
     for path in _walk_project(root):
         rel = str(path.relative_to(root))
@@ -334,10 +377,22 @@ def surface(
                     conn.execute(f"DELETE FROM {table} WHERE {key_col} = ?", (r[key_col],))
                     deleted.append({"table": table, key_col: r[key_col]})
     conn.commit()
+
+    warnings = conn.execute(
+        "SELECT kind, COUNT(*) AS n FROM scry__warning GROUP BY kind"
+    ).fetchall()
+    warning_counts = {r["kind"]: r["n"] for r in warnings}
+    sample = [
+        dict(r) for r in conn.execute(
+            "SELECT kind, marker_id, file_path, message FROM scry__warning LIMIT 10"
+        ).fetchall()
+    ]
+
     return {
         "files_scanned": counts["files_scanned"],
         "markers_indexed": counts["markers_indexed"],
         "flagged_missing": flagged,
         "force_deleted": deleted,
+        "warnings": {"counts": warning_counts, "sample": sample, "hint": "query scry__warning for the full list"},
         "force": force,
     }

@@ -4,6 +4,31 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-05-06
+
+### Added
+
+- `scry__warning` table for lint-style misplacement warnings, queryable
+  via `scry_sql`. Schema: `(id, kind, marker_kind, marker_id, file_path,
+  message, detected_at)`.
+- Location rule: `@scry.doc` markers belong inside `agent/`; `@scry.file`
+  markers describe non-agent source. Misplaced markers are still indexed
+  so agents can find them, but a row is recorded in `scry__warning`.
+- `scry_surface` return now includes `warnings.counts`, `warnings.sample`,
+  and a hint pointing to the table.
+- Verbatim tool descriptions and FastMCP `instructions=` text — agents
+  now see field-quality examples for `summary`/`rationale`/`applies` and
+  the full table list at connect time.
+- New migration `002_warnings.sql`.
+- 7 new tests covering warning insert, no-warning happy paths, auto-clear
+  on move/delete, and a regression test for `@scry.file` indexing.
+
+### Notes
+
+- Warnings are pure derived state. `scry_surface` wipes the table at
+  the start of each call and rebuilds from the live walk; the watcher's
+  `reindex_file` clears warnings for the touched path on each event.
+
 ## [0.2.1] - 2026-05-05
 
 ### Fixed

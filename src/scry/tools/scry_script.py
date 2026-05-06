@@ -13,15 +13,18 @@ async def scry_script(
     script: str | None = None,
     params: dict[str, Any] | None = None,
 ) -> str:
-    """Discover or run scry scripts.
+    """Run validation or transformation scripts with DB access.
+
+    Actions:
+      list — discover available scripts (bundled + project-local)
+      run  — execute a named script
 
     Args:
-        action: 'list' to enumerate available scripts, 'run' to execute one.
-        script: Required when action='run'. Script name (file stem).
-        params: Optional dict passed to the script's `run(db, params)` callable.
+        action: "list" or "run"
+        script: script name (required for action="run")
+        params: arbitrary params passed to the script (optional)
 
-    Returns JSON. On 'list': {"scripts": [{"name", "description", "path"}, ...]}.
-    On 'run': whatever the script returns (must be a JSON-serializable dict).
+    Scripts have read-write DB access. They return structured JSON.
     """
     if action == "list":
         return serialize(list_scripts())

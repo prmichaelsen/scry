@@ -7,14 +7,18 @@ from scry.tools._common import serialize
 
 
 async def scry_surface(force: bool = False) -> str:
-    """Walk the project, parse all markers, and rebuild the cache from disk.
+    """Rebuild the DB from disk markers. Use after git pull, bulk file moves,
+    or if query results seem stale. The file watcher handles live indexing —
+    only call this for full re-scans.
+
+    Walks all project files, parses @scry.* markers, upserts to DB.
+    Idempotent. Uses content-hash dedup.
 
     Args:
-        force: If true, hard-delete records whose source file no longer exists
-            (records previously soft-flagged with `missing_since`).
+        force: If true, hard-deletes records whose files no longer exist.
+               If false (default), sets missing_since and warns.
 
-    Returns JSON summarizing scanned files, indexed markers, flagged records,
-    and any force-deleted rows.
+    Returns JSON with counts per marker type and any warnings.
     """
     conn = get_db()
     try:
