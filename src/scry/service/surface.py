@@ -65,7 +65,14 @@ def _is_gitignored(path: Path, gitignore_specs: "dict[Path, Any]") -> bool:
 
 
 def _walk_project(root: Path) -> Iterable[Path]:
-    """Walk project tree following symlinks (DR10) with cycle detection and .gitignore filtering (DR12)."""
+    """Walk project tree following symlinks (DR10) with cycle detection and .gitignore filtering (DR12).
+
+    Gitignore filtering applies to regular directories and files. Directory symlinks are
+    exempt from parent-project gitignore filtering: the parent .gitignore may list
+    'agent/projects/' to prevent committing the symlinks, but scry should still traverse
+    their targets to index linked-project markers. Each linked project's own .gitignore
+    is picked up and applied within its subtree.
+    """
     visited: set[Path] = set()
     gitignore_specs: dict[Path, Any] = {}
 
@@ -82,12 +89,16 @@ def _walk_project(root: Path) -> Iterable[Path]:
         if spec is not None:
             gitignore_specs[dirpath_path] = spec
 
-        # Filter excluded dirs and gitignored dirs
+        # Filter excluded dirs and gitignored dirs.
+        # Symlinked directories are exempt from parent gitignore filtering (see docstring).
         dirnames[:] = [
             d for d in dirnames
             if d not in EXCLUDED_DIRS
             and not d.startswith(".")
-            and not _is_gitignored(dirpath_path / d, gitignore_specs)
+            and (
+                (dirpath_path / d).is_symlink()  # symlinks always traversed
+                or not _is_gitignored(dirpath_path / d, gitignore_specs)
+            )
         ]
 
         for fn in filenames:
