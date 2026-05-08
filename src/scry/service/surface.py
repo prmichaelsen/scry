@@ -36,11 +36,64 @@ def _is_binary(path: Path) -> bool:
     return b"\x00" in chunk
 
 
+def _load_gitignore_spec(dirpath: Path) -> "Any | None":
+    """Load .gitignore from dirpath and return a pathspec.PathSpec, or None if unavailable."""
+    gi = dirpath / ".gitignore"
+    if not gi.is_file():
+        return None
+    try:
+        import pathspec  # optional dep; skipped if not installed
+        return pathspec.PathSpec.from_lines("gitwildmatch", gi.read_text(errors="replace").splitlines())
+    except ImportError:
+        return None
+    except Exception:
+        return None
+
+
+def _is_gitignored(path: Path, gitignore_specs: "dict[Path, Any]") -> bool:
+    """Return True if path is matched by any applicable ancestor .gitignore spec."""
+    for dir_path, spec in gitignore_specs.items():
+        if spec is None:
+            continue
+        try:
+            rel = path.relative_to(dir_path)
+        except ValueError:
+            continue
+        if spec.match_file(str(rel)):
+            return True
+    return False
+
+
 def _walk_project(root: Path) -> Iterable[Path]:
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in EXCLUDED_DIRS and not d.startswith(".")]
+    """Walk project tree following symlinks (DR10) with cycle detection and .gitignore filtering (DR12)."""
+    visited: set[Path] = set()
+    gitignore_specs: dict[Path, Any] = {}
+
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
+        real = Path(dirpath).resolve()
+        if real in visited:
+            dirnames[:] = []
+            continue
+        visited.add(real)
+
+        dirpath_path = Path(dirpath)
+        # Load .gitignore for this directory (DR12)
+        spec = _load_gitignore_spec(dirpath_path)
+        if spec is not None:
+            gitignore_specs[dirpath_path] = spec
+
+        # Filter excluded dirs and gitignored dirs
+        dirnames[:] = [
+            d for d in dirnames
+            if d not in EXCLUDED_DIRS
+            and not d.startswith(".")
+            and not _is_gitignored(dirpath_path / d, gitignore_specs)
+        ]
+
         for fn in filenames:
-            yield Path(dirpath) / fn
+            fpath = dirpath_path / fn
+            if not _is_gitignored(fpath, gitignore_specs):
+                yield fpath
 
 
 def _is_ephemeral(rel_path: str) -> int:
@@ -315,6 +368,24 @@ def handle_file_deletion(conn: sqlite3.Connection, rel_path: str) -> None:
     conn.execute("DELETE FROM scry__impl WHERE file_path = ?", (rel_path,))
     conn.execute("DELETE FROM scry__test WHERE file_path = ?", (rel_path,))
     conn.execute("DELETE FROM scry__warning WHERE file_path = ?", (rel_path,))
+    conn.commit()
+
+
+def handle_subtree_deletion(conn: sqlite3.Connection, prefix: str) -> None:
+    """Soft-delete docs/files; hard-delete anchors/impls/tests for a removed subtree."""
+    now = _now()
+    conn.execute(
+        "UPDATE scry__doc SET missing_since = COALESCE(missing_since, ?) WHERE current_path LIKE ?",
+        (now, prefix + "%"),
+    )
+    conn.execute(
+        "UPDATE scry__file SET missing_since = COALESCE(missing_since, ?) WHERE current_path LIKE ?",
+        (now, prefix + "%"),
+    )
+    conn.execute("DELETE FROM scry__anchor WHERE current_path LIKE ?", (prefix + "%",))
+    conn.execute("DELETE FROM scry__impl WHERE file_path LIKE ?", (prefix + "%",))
+    conn.execute("DELETE FROM scry__test WHERE file_path LIKE ?", (prefix + "%",))
+    conn.execute("DELETE FROM scry__warning WHERE file_path LIKE ?", (prefix + "%",))
     conn.commit()
 
 

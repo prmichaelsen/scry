@@ -109,12 +109,20 @@ class _Handler(FileSystemEventHandler):
         self.watcher.debounce_modify(event.src_path)
 
     def on_created(self, event: FileSystemEvent) -> None:
-        if event.is_directory or self._excluded(event.src_path):
+        if event.is_directory:
+            # If a new directory symlink appears, schedule an observer for its target (DR11)
+            p = Path(event.src_path)
+            if p.is_symlink() and p.is_dir():
+                self.watcher.schedule_symlink_observer(p)
+            return
+        if self._excluded(event.src_path):
             return
         self.watcher.debounce_modify(event.src_path)
 
     def on_deleted(self, event: FileSystemEvent) -> None:
         if event.is_directory:
+            # If a directory symlink was removed, clean up its observer and flush stale DB rows (DR11)
+            self.watcher.unschedule_symlink_observer(event.src_path)
             return
         self.watcher.debounce_delete(event.src_path)
 
@@ -142,6 +150,8 @@ class ScryWatcher:
         self._debouncer = _Debouncer(debounce_ms, self._process_modify)
         self._delete_debouncer = _Debouncer(debounce_ms, self._process_delete)
         self._stopped = False
+        # DR11: per-symlink-target observers keyed by resolved target path
+        self._symlink_observers: dict[Path, Observer] = {}
 
     def start(self, run_cold_scan: bool = True) -> None:
         self.is_primary = self.lock.claim()
@@ -153,6 +163,8 @@ class ScryWatcher:
         self._observer.schedule(_Handler(self), str(self.project_root), recursive=True)
         self._observer.daemon = True
         self._observer.start()
+        # DR11: schedule observers for any existing directory symlinks under project_root
+        self._schedule_existing_symlinks()
 
     def stop(self) -> None:
         if self._stopped:
@@ -165,6 +177,14 @@ class ScryWatcher:
             except RuntimeError:
                 pass
             self._observer = None
+        # DR11: stop all symlink observers
+        for obs in list(self._symlink_observers.values()):
+            obs.stop()
+            try:
+                obs.join(timeout=2)
+            except RuntimeError:
+                pass
+        self._symlink_observers.clear()
         self._debouncer.shutdown()
         self._delete_debouncer.shutdown()
         if self.is_primary:
@@ -222,5 +242,93 @@ class ScryWatcher:
                 self._observer.schedule(_Handler(self), str(self.project_root), recursive=True)
                 self._observer.daemon = True
                 self._observer.start()
+            self._schedule_existing_symlinks()
             return True
         return False
+
+    # DR11: per-symlink-target Observer management --------------------------------
+
+    def _schedule_existing_symlinks(self) -> None:
+        """Schedule observers for all directory symlinks already present under project_root."""
+        if self._observer is None:
+            return
+        try:
+            for root, dirs, _ in os.walk(str(self.project_root)):
+                for d in dirs:
+                    full = Path(root) / d
+                    if full.is_symlink() and full.is_dir():
+                        self.schedule_symlink_observer(full)
+                # Don't recurse into symlinks here; the per-symlink observer handles that
+                dirs[:] = [d for d in dirs if not (Path(root) / d).is_symlink()]
+        except Exception:
+            pass
+
+    def schedule_symlink_observer(self, symlink_path: Path) -> None:
+        """Start a new Observer for the real target of a directory symlink (DR11)."""
+        if self._observer is None or not self.is_primary:
+            return
+        try:
+            real = symlink_path.resolve()
+        except OSError:
+            return
+        if real in self._symlink_observers:
+            return  # already watching
+        obs = Observer()
+        obs.schedule(_Handler(self), str(real), recursive=True)
+        obs.daemon = True
+        obs.start()
+        self._symlink_observers[real] = obs
+
+    def unschedule_symlink_observer(self, deleted_path: str) -> None:
+        """Stop Observer for a removed directory symlink and flush stale DB rows (DR11)."""
+        deleted = Path(deleted_path)
+        # Find the real target this path was resolving to (it's already gone so we
+        # can't call resolve(); match by checking which recorded observer paths were
+        # under the deleted symlink's parent with the same name)
+        # Strategy: find any observer key whose string starts with the deleted path name
+        # heuristic — we stored by real target, so look for any match
+        to_remove: list[Path] = []
+        for real_target in list(self._symlink_observers.keys()):
+            # The symlink name (deleted_path basename) may not match the real target,
+            # so we store by symlink path in addition. Reconstruct: if the observer
+            # was scheduled for a dir that was reachable only via this symlink, the
+            # rel_path prefix in the DB tells us what to flush.
+            # Best effort: match if real_target name equals deleted path stem or
+            # if the symlink name equals the real target's last part.
+            if real_target.name == deleted.name or deleted.name in str(real_target):
+                to_remove.append(real_target)
+
+        for real_target in to_remove:
+            obs = self._symlink_observers.pop(real_target, None)
+            if obs is not None:
+                obs.stop()
+                try:
+                    obs.join(timeout=2)
+                except RuntimeError:
+                    pass
+
+        # Flush stale DB rows for the removed symlink prefix (DR11)
+        # The relative path in scry__doc for a symlink at agent/projects/<name>/
+        # would be agent/projects/<name>/...
+        self._flush_symlink_rows(deleted)
+
+    def _flush_symlink_rows(self, deleted_symlink: Path) -> None:
+        """Delete DB rows whose current_path starts with the removed symlink's relative prefix."""
+        try:
+            rel = str(deleted_symlink.relative_to(self.project_root))
+        except ValueError:
+            return
+        prefix = rel.replace("\\", "/").rstrip("/") + "/"
+        conn = get_db(self.db_path)
+        try:
+            conn.execute("DELETE FROM scry__doc WHERE current_path LIKE ?", (prefix + "%",))
+            conn.execute("DELETE FROM scry__file WHERE current_path LIKE ?", (prefix + "%",))
+            conn.execute("DELETE FROM scry__anchor WHERE current_path LIKE ?", (prefix + "%",))
+            conn.execute("DELETE FROM scry__impl WHERE current_path LIKE ?", (prefix + "%",))
+            conn.execute("DELETE FROM scry__test WHERE current_path LIKE ?", (prefix + "%",))
+            conn.execute("DELETE FROM scry__warning WHERE file_path LIKE ?", (prefix + "%",))
+            conn.commit()
+        except Exception:
+            pass
+        finally:
+            conn.close()
