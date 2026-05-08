@@ -51,12 +51,19 @@ def _load_gitignore_spec(dirpath: Path) -> "Any | None":
 
 
 def _is_gitignored(path: Path, gitignore_specs: "dict[Path, Any]") -> bool:
-    """Return True if path is matched by any applicable ancestor .gitignore spec."""
-    for dir_path, spec in gitignore_specs.items():
+    """Return True if path is matched by any applicable ancestor .gitignore spec.
+
+    Uses resolved (real) paths when computing relative paths so that files inside
+    symlinked directories are checked against THEIR project's gitignore, not the
+    linking project's gitignore. This prevents the linking project's '.gitignore'
+    entry for 'agent/projects/' from suppressing files inside linked projects.
+    """
+    real_path = path.resolve()
+    for real_dir, spec in gitignore_specs.items():
         if spec is None:
             continue
         try:
-            rel = path.relative_to(dir_path)
+            rel = real_path.relative_to(real_dir)
         except ValueError:
             continue
         if spec.match_file(str(rel)):
@@ -67,44 +74,45 @@ def _is_gitignored(path: Path, gitignore_specs: "dict[Path, Any]") -> bool:
 def _walk_project(root: Path) -> Iterable[Path]:
     """Walk project tree following symlinks (DR10) with cycle detection and .gitignore filtering (DR12).
 
-    Gitignore filtering applies to regular directories and files. Directory symlinks are
-    exempt from parent-project gitignore filtering: the parent .gitignore may list
-    'agent/projects/' to prevent committing the symlinks, but scry should still traverse
-    their targets to index linked-project markers. Each linked project's own .gitignore
-    is picked up and applied within its subtree.
+    gitignore_specs is keyed by the REAL (resolved) path of each directory that has
+    a .gitignore. This means:
+    - A directory symlink is traversed into its resolved target.
+    - .gitignore patterns in the linking project are only compared against real paths
+      within that project, so they cannot accidentally filter files in linked projects.
+    - Each linked project's own .gitignore is loaded and applied within its real subtree.
     """
     visited: set[Path] = set()
-    gitignore_specs: dict[Path, Any] = {}
+    gitignore_specs: dict[Path, Any] = {}  # real_dir_path -> PathSpec
 
     for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
-        real = Path(dirpath).resolve()
+        dp = Path(dirpath)
+        real = dp.resolve()
         if real in visited:
             dirnames[:] = []
             continue
         visited.add(real)
 
-        dirpath_path = Path(dirpath)
-        # Load .gitignore for this directory (DR12)
-        spec = _load_gitignore_spec(dirpath_path)
+        # Load .gitignore for this directory, keyed by its REAL path (DR12)
+        spec = _load_gitignore_spec(dp)
         if spec is not None:
-            gitignore_specs[dirpath_path] = spec
+            gitignore_specs[real] = spec
 
         # Filter excluded dirs and gitignored dirs.
-        # Symlinked directories are exempt from parent gitignore filtering (see docstring).
+        # Symlinked directories bypass gitignore (traversal is the point).
         dirnames[:] = [
             d for d in dirnames
             if d not in EXCLUDED_DIRS
             and not d.startswith(".")
             and (
-                (dirpath_path / d).is_symlink()  # symlinks always traversed
-                or not _is_gitignored(dirpath_path / d, gitignore_specs)
+                (dp / d).is_symlink()  # symlinks always traversed
+                or not _is_gitignored(dp / d, gitignore_specs)
             )
         ]
 
         for fn in filenames:
-            fpath = dirpath_path / fn
-            if not _is_gitignored(fpath, gitignore_specs):
-                yield fpath
+            fp = dp / fn
+            if not _is_gitignored(fp, gitignore_specs):
+                yield fp
 
 
 def _is_ephemeral(rel_path: str) -> int:
