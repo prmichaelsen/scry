@@ -69,30 +69,62 @@ def list_scripts(project_root: Path | None = None) -> dict[str, Any]:
     return {"scripts": items}
 
 
-def run_script(
+def _run_script_at(
     conn: sqlite3.Connection,
     script: str,
-    params: dict[str, Any] | None = None,
-    project_root: Path | None = None,
+    path: Path,
+    params: dict[str, Any],
 ) -> dict[str, Any]:
-    target: Path | None = None
-    for name, path in _iter_script_files(project_root):
-        if name == script:
-            target = path
-            break
-    if target is None:
-        return {"error": f"script {script!r} not found"}
+    """Load and execute a script module at *path*, returning structured JSON."""
     try:
-        module = _load_module(script, target)
+        module = _load_module(script, path)
     except Exception as e:
         return {"error": f"failed to load {script}: {e}", "traceback": traceback.format_exc()}
     run_fn = getattr(module, "run", None)
     if not callable(run_fn):
         return {"error": f"script {script!r} does not export `run`"}
     try:
-        result = run_fn(conn, params or {})
+        result = run_fn(conn, params)
     except Exception as e:
         return {"error": f"{script} raised: {e}", "traceback": traceback.format_exc()}
     if not isinstance(result, dict):
         return {"result": result}
     return result
+
+
+def run_script(
+    conn: sqlite3.Connection,
+    script: str,
+    params: dict[str, Any] | None = None,
+    project_root: Path | None = None,
+) -> dict[str, Any]:
+    params = params or {}
+
+    # Handle local: prefix — resolves to
+    # agent/runtime/tracks/<track>/scripts/<name>.py in the project root.
+    if script.startswith("local:"):
+        local_name = script[len("local:"):]
+        track = params.get("track")
+        if not track:
+            return {
+                "error": "script_not_found",
+                "script": script,
+                "reason": "'track' param required for local: scripts",
+            }
+        root = project_root or get_project_root()
+        local_path = (
+            root / "agent" / "runtime" / "tracks" / track / "scripts" / f"{local_name}.py"
+        )
+        if not local_path.exists():
+            return {"error": "script_not_found", "script": script}
+        return _run_script_at(conn, local_name, local_path, params)
+
+    # Global script resolution (bundled + driver scripts dirs).
+    target: Path | None = None
+    for name, path in _iter_script_files(project_root):
+        if name == script:
+            target = path
+            break
+    if target is None:
+        return {"error": "script_not_found", "script": script}
+    return _run_script_at(conn, script, target, params)
