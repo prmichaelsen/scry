@@ -743,7 +743,7 @@ wheels = [
 
 [[package]]
 name = "scry-mcp"
-version = "0.10.2"
+version = "0.10.3"
 source = { editable = "." }
 dependencies = [
     { name = "mcp" },
@@ -766,7 +766,7 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "scry-parse", specifier = ">=1.0.0" },
+    { name = "scry-parse", specifier = ">=1.0.1" },
     { name = "watchdog", specifier = ">=4.0" },
 ]
 provides-extras = ["dev"]
