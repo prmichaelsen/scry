@@ -41,6 +41,46 @@ def test_debouncer_collapses_rapid_calls():
     assert fired == ["k"]
 
 
+def test_excluded_uses_relative_path(tmp_path: Path):
+    """_excluded must check path components relative to project_root, not the absolute path.
+
+    Regression: projects under dotted parent dirs like ~/.acp/... had the absolute-path
+    component '.acp' match the startswith('.') check, causing every watcher event to be
+    silently dropped and leaving the index permanently stale.
+    """
+    # Simulate a project nested under a dotted ancestor dir (e.g. .acp)
+    dotted_parent = tmp_path / ".acp" / "projects" / "myproject"
+    (dotted_parent / "agent").mkdir(parents=True)
+    db_path = dotted_parent / "agent" / "drivers" / "@local" / "scry" / "data" / "project.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    from scry.service.migration import run_migrations
+    import sqlite3
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    run_migrations(conn=conn)
+    conn.close()
+
+    w = ScryWatcher(project_root=dotted_parent, db_path=db_path)
+    handler = w._debouncer  # just need to confirm watcher initialises
+    from scry.service.watcher import _Handler
+    h = _Handler(w)
+
+    # A file inside the project should NOT be excluded
+    inner = str(dotted_parent / "agent" / "design" / "foo.md")
+    assert not h._excluded(inner), (
+        "_excluded must not exclude files inside the project even when an ancestor dir starts with '.'"
+    )
+
+    # A dotted dir inside the project SHOULD be excluded
+    hidden = str(dotted_parent / ".git" / "config")
+    assert h._excluded(hidden), "_excluded must still exclude .git and other dotted dirs inside the project"
+
+    # A file outside the project root should be excluded
+    outside = str(tmp_path / "elsewhere" / "foo.md")
+    assert h._excluded(outside), "_excluded must exclude files outside project_root"
+
+
 def test_watcher_smoke_indexes_existing_file(tmp_path: Path):
     project = tmp_path / "proj"
     (project / "agent").mkdir(parents=True)

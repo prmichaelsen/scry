@@ -7,6 +7,7 @@ observers (DR11).
 from __future__ import annotations
 
 import os
+import sys
 import threading
 import time
 from pathlib import Path
@@ -85,9 +86,9 @@ class _Debouncer:
             self._timers.pop(key, None)
         try:
             self.callback(*args)
-        except Exception:
-            # Watcher must never crash; swallow per-event errors.
-            pass
+        except Exception as exc:
+            # Watcher must never crash; log and swallow per-event errors.
+            print(f"[scry watcher] error processing {key!r}: {exc}", file=sys.stderr)
 
     def shutdown(self) -> None:
         with self._lock:
@@ -101,8 +102,11 @@ class _Handler(FileSystemEventHandler):
         self.watcher = watcher
 
     def _excluded(self, path: str) -> bool:
-        rel_parts = Path(path).parts
-        return any(p in EXCLUDED_DIRS or p.startswith(".") for p in rel_parts)
+        try:
+            rel = Path(path).relative_to(self.watcher.project_root)
+        except ValueError:
+            return True  # outside project root — exclude
+        return any(p in EXCLUDED_DIRS or p.startswith(".") for p in rel.parts)
 
     def on_modified(self, event: FileSystemEvent) -> None:
         if event.is_directory or self._excluded(event.src_path):
@@ -263,7 +267,29 @@ class ScryWatcher:
         from scry.service.surface import surface
         conn = get_db(self.db_path)
         try:
-            surface(conn, project_root=self.project_root, force=False)
+            before = conn.execute(
+                "SELECT COUNT(*) AS n FROM scry__doc WHERE missing_since IS NULL"
+            ).fetchone()["n"]
+            result = surface(conn, project_root=self.project_root, force=False)
+            after = conn.execute(
+                "SELECT COUNT(*) AS n FROM scry__doc WHERE missing_since IS NULL"
+            ).fetchone()["n"]
+            delta = after - before
+            flagged = len(result.get("flagged_missing", []))
+            if delta > 0 or flagged > 0:
+                print(
+                    f"[scry watcher] cold scan: {result['files_scanned']} files scanned, "
+                    f"{result['markers_indexed']} markers indexed "
+                    f"(+{delta} net-new docs, {flagged} flagged missing)",
+                    file=sys.stderr,
+                )
+                if delta > 5:
+                    print(
+                        f"[scry watcher] WARNING: {delta} markers were on disk but not indexed "
+                        "— watcher may have been offline or drift occurred. "
+                        "Run scry_surface to rebuild if counts seem wrong.",
+                        file=sys.stderr,
+                    )
         finally:
             conn.close()
 

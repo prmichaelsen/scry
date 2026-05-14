@@ -4,6 +4,36 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.3] - 2026-05-14
+
+### Fixed
+
+- `__version__` in `__init__.py` now correctly reports `0.5.3` (was accidentally left at
+  `0.5.1` in 0.5.2 — all watcher fixes were present; only the version string was wrong).
+- `sys` import moved to module level in `watcher.py` for cleaner style.
+
+## [0.5.2] - 2026-05-14
+
+### Fixed
+
+- **Watcher drift bug**: `_Handler._excluded` was calling `Path(path).parts` on the
+  absolute filesystem path, not the path relative to the project root. For projects
+  installed under a dotted ancestor directory (e.g. `~/.acp/projects/...`), the `.acp`
+  component matched the `startswith(".")` guard and caused every `on_created` /
+  `on_modified` event to be silently dropped. The watcher appeared to run but indexed
+  nothing after the initial cold scan. Fix: compute `Path(path).relative_to(project_root)`
+  before checking parts. Files outside the project root are now excluded (safe) rather
+  than accidentally excluded via the dotted-ancestor path.
+- **Watcher error visibility**: `_Debouncer._fire` now logs exceptions to `stderr` instead
+  of silently swallowing them. The watcher still never crashes on per-event errors; it just
+  makes them visible.
+
+### Tests
+
+- Added `test_excluded_uses_relative_path` regression test covering the dotted-ancestor
+  path bug — verifies that files inside the project are not excluded, dotted dirs inside
+  the project are still excluded, and files outside the project root are excluded.
+
 ## [0.5.1] - 2026-05-14
 
 ### Added
