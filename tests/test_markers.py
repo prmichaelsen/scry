@@ -1,16 +1,17 @@
-"""Marker parser tests (FR1-FR7)."""
+"""Marker parser tests (FR1-FR7) — scry-spec v1.0."""
 from __future__ import annotations
 
 from scry.domain.markers import (
     parse_markers,
     strip_markers_from_content,
     content_hash,
+    DOC_KIND_VALUES,
 )
 from scry.util.comments import strip_comment_prefix
 
 
-DOC_HTML = """\
-<!-- @scry.doc
+ENTRY_HTML = """\
+<!-- @scry.entry
 id: design.auth-flow~a1b2c3d4
 kind: design
 summary: >
@@ -23,20 +24,23 @@ rationale: >
 applies: modifying auth
 seeded_questions:
   - How does refresh work?
+@scry.entry.end -->
+"""
+
+# Legacy markers — must NOT be parsed per scry-spec v1.0
+LEGACY_DOC_HTML = """\
+<!-- @scry.doc
+id: design.auth-flow~a1b2c3d4
+kind: design
+summary: JWT auth middleware
 @scry.doc.end -->
 """
 
-FILE_PYTHON = """\
+LEGACY_FILE_PYTHON = """\
 # @scry.file
 # id: file.auth-mid~e5f6a7b8
 # kind: middleware
 # summary: jwt validator
-# status: active
-# weight: 0.7
-# tags: ["scope:auth"]
-# rationale: required
-# applies: routes
-# seeded_questions: [q1]
 # @scry.file.end
 """
 
@@ -55,8 +59,8 @@ LINE_MARKERS = """\
 """
 
 
-def test_parse_doc_block_extracts_all_fields():
-    r = parse_markers(DOC_HTML)
+def test_parse_entry_block_extracts_all_fields():
+    r = parse_markers(ENTRY_HTML)
     assert len(r.docs) == 1
     d = r.docs[0]
     assert d.id == "design.auth-flow~a1b2c3d4"
@@ -69,12 +73,16 @@ def test_parse_doc_block_extracts_all_fields():
     assert "How does refresh work" in d.seeded_questions
 
 
-def test_parse_file_block_freeform_kind():
-    r = parse_markers(FILE_PYTHON)
-    assert len(r.files) == 1
-    f = r.files[0]
-    assert f.id == "file.auth-mid~e5f6a7b8"
-    assert f.kind == "middleware"
+def test_legacy_doc_marker_not_parsed():
+    """scry-spec v1.0: @scry.doc is no longer recognized."""
+    r = parse_markers(LEGACY_DOC_HTML)
+    assert len(r.docs) == 0
+
+
+def test_legacy_file_marker_not_parsed():
+    """scry-spec v1.0: @scry.file is no longer recognized."""
+    r = parse_markers(LEGACY_FILE_PYTHON)
+    assert len(r.docs) == 0
 
 
 def test_parse_anchor_block():
@@ -96,20 +104,53 @@ def test_parse_line_markers():
     assert r.tests[0].ref == "spec.auth~xyz#UT1"
 
 
-def test_positional_exclusion_skips_impl_inside_doc():
+def test_positional_exclusion_skips_impl_inside_entry():
     content = (
-        DOC_HTML.replace("@scry.doc.end", "@scry.impl foo~12345678 spec.x~abc#FR1\n@scry.doc.end")
+        ENTRY_HTML.replace("@scry.entry.end", "@scry.impl foo~12345678 spec.x~abc#FR1\n@scry.entry.end")
     )
     r = parse_markers(content)
     assert len(r.impls) == 0
     assert len(r.docs) == 1
 
 
-def test_includes_impl_after_closed_doc():
-    content = DOC_HTML + "\n# @scry.impl bar~b2345678 spec.x~abc#FR2\n"
+def test_includes_impl_after_closed_entry():
+    content = ENTRY_HTML + "\n# @scry.impl bar~b2345678 spec.x~abc#FR2\n"
     r = parse_markers(content)
     assert len(r.impls) == 1
     assert r.impls[0].id == "bar~b2345678"
+
+
+def test_doc_kind_values_v1_baseline():
+    """v1.0 baseline kinds include lesson, report, audit, research, code."""
+    for kind in ("design", "pattern", "spec", "lesson", "internal",
+                 "task", "milestone", "report", "audit", "research", "code"):
+        assert kind in DOC_KIND_VALUES, f"{kind!r} missing from DOC_KIND_VALUES"
+
+
+def test_entry_unknown_kind_maps_to_internal():
+    content = """\
+<!-- @scry.entry
+id: misc.thing~a1b2c3d4
+kind: unknownkind
+summary: test
+@scry.entry.end -->
+"""
+    r = parse_markers(content)
+    assert len(r.docs) == 1
+    assert r.docs[0].kind == "internal"
+
+
+def test_entry_lesson_kind_accepted():
+    content = """\
+<!-- @scry.entry
+id: lesson.thing~a1b2c3d4
+kind: lesson
+summary: learned something
+@scry.entry.end -->
+"""
+    r = parse_markers(content)
+    assert len(r.docs) == 1
+    assert r.docs[0].kind == "lesson"
 
 
 def test_strip_comment_prefix_jsdoc():
@@ -126,7 +167,7 @@ def test_strip_comment_prefix_python():
 
 
 def test_strip_markers_from_content_removes_block_and_line():
-    src = DOC_HTML + LINE_MARKERS
+    src = ENTRY_HTML + LINE_MARKERS
     out = strip_markers_from_content(src)
     assert "@scry." not in out
 

@@ -1,14 +1,14 @@
 """Marker parsing: dataclasses, regex, parser, and stripping helpers.
 
-Block markers (`@scry.doc`, `@scry.file`, `@scry.anchor`, `@scry.entry`) span
-multiple lines between an open token and a `.end` close token. The open and
-close tokens may be embedded inside any host-language comment syntax — comment
-prefixes are inferred from the YAML body via :func:`strip_comment_prefix`.
+Block markers (`@scry.entry`, `@scry.anchor`) span multiple lines between an
+open token and a `.end` close token. The open and close tokens may be embedded
+inside any host-language comment syntax — comment prefixes are inferred from
+the YAML body via :func:`strip_comment_prefix`.
 
-`@scry.entry` is the unified replacement for `@scry.doc` (legacy) and
-`@scry.file` (legacy). Both legacy kinds remain supported for backward
-compatibility but new markers should use `@scry.entry`. Entry markers are
-indexed in `scry__doc` the same as `@scry.doc` markers.
+`@scry.entry` is the canonical block marker for knowledge-graph entries
+(designs, specs, tasks, milestones, patterns, lessons, etc.). `@scry.anchor`
+marks named code locations. Legacy `@scry.doc` and `@scry.file` markers are
+no longer recognized per scry-spec v1.0.
 
 Line markers (`@scry.impl`, `@scry.test`) are single-line and follow the form
 ``@scry.<kind> <id> <ref>``.
@@ -28,14 +28,27 @@ import yaml
 
 from scry.util.comments import strip_comment_prefix
 
-BLOCK_KINDS: tuple[str, ...] = ("doc", "file", "anchor", "entry")
+BLOCK_KINDS: tuple[str, ...] = ("entry", "anchor")
 LINE_KINDS: tuple[str, ...] = ("impl", "test")
 
-DOC_KIND_VALUES = ("design", "spec", "task", "milestone", "clarification", "pattern", "internal")
+# scry-spec v1.0 baseline kinds. `clarification` is an ACP-specific extension;
+# the parser tolerates it by mapping unknown kinds to "internal".
+DOC_KIND_VALUES = (
+    # Documentation/Knowledge
+    "design", "pattern", "spec", "lesson", "internal",
+    # Work Management
+    "task", "milestone",
+    # Analysis/Outputs
+    "report", "audit", "research",
+    # Implementation
+    "code",
+    # ACP extension (tolerated; maps to internal in strict mode)
+    "clarification",
+)
 STATUS_VALUES = ("draft", "active", "approved", "stale", "complete")
 
-_OPEN_RE = re.compile(r"@scry\.(doc|file|anchor|entry)(?!\.end)\b([^\n]*)")
-_CLOSE_RE = re.compile(r"@scry\.(doc|file|anchor|entry)\.end\b")
+_OPEN_RE = re.compile(r"@scry\.(entry|anchor)(?!\.end)\b([^\n]*)")
+_CLOSE_RE = re.compile(r"@scry\.(entry|anchor)\.end\b")
 _LINE_RE = re.compile(r"@scry\.(impl|test)\s+(\S+)\s+(\S+)")
 
 
@@ -43,21 +56,6 @@ _LINE_RE = re.compile(r"@scry\.(impl|test)\s+(\S+)\s+(\S+)")
 class DocMarker:
     id: str
     kind: str
-    summary: str | None = None
-    status: str | None = None
-    weight: float | None = None
-    tags: str | None = None
-    rationale: str | None = None
-    applies: str | None = None
-    seeded_questions: str | None = None
-    raw_body: str = ""
-    span: tuple[int, int] = (0, 0)
-
-
-@dataclass
-class FileMarker:
-    id: str
-    kind: str | None = None
     summary: str | None = None
     status: str | None = None
     weight: float | None = None
@@ -97,7 +95,6 @@ class TestMarker:
 @dataclass
 class ParseResult:
     docs: list[DocMarker] = field(default_factory=list)
-    files: list[FileMarker] = field(default_factory=list)
     anchors: list[AnchorMarker] = field(default_factory=list)
     impls: list[ImplMarker] = field(default_factory=list)
     tests: list[TestMarker] = field(default_factory=list)
@@ -241,14 +238,11 @@ def parse_markers(content: str) -> ParseResult:
             span=span,
         )
 
-        if kind in ("doc", "entry"):
+        if kind == "entry":
             doc_kind = _coerce_text(data.get("kind")) or "internal"
             if doc_kind not in DOC_KIND_VALUES:
                 doc_kind = "internal"
             result.docs.append(DocMarker(kind=doc_kind, **common))
-        elif kind == "file":
-            file_kind = _coerce_text(data.get("kind"))
-            result.files.append(FileMarker(kind=file_kind, **common))
 
     # Line markers — apply positional exclusion.
     for m in _LINE_RE.finditer(content):

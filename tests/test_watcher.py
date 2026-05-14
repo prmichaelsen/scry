@@ -87,7 +87,7 @@ def test_watcher_smoke_indexes_existing_file(tmp_path: Path):
     db_path = project / "agent" / "drivers" / "@local" / "scry" / "data" / "project.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     (project / "doc.md").write_text(
-        "<!-- @scry.doc\nid: task.smoke~aaaaaaaa\nkind: task\nsummary: smoke\nstatus: draft\nweight: 0.1\n@scry.doc.end -->\n",
+        "<!-- @scry.entry\nid: task.smoke~aaaaaaaa\nkind: task\nsummary: smoke\nstatus: draft\nweight: 0.1\n@scry.entry.end -->\n",
         encoding="utf-8",
     )
     from scry.service.migration import run_migrations

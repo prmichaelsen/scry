@@ -14,7 +14,6 @@ from scry.config import BINARY_SNIFF_BYTES, EXCLUDED_DIRS, get_project_root
 from scry.domain.markers import (
     AnchorMarker,
     DocMarker,
-    FileMarker,
     ImplMarker,
     ParseResult,
     TestMarker,
@@ -127,8 +126,8 @@ def _under_agent(rel_path: str) -> bool:
 def _record_warnings(conn: sqlite3.Connection, parsed, rel_path: str) -> int:
     """Replace any prior warnings for `rel_path` with the current state.
 
-    Rule: docs belong inside `agent/`; files describe non-agent source.
-    Misplaced markers are still indexed, just flagged.
+    Rule: entry markers (docs) belong inside `agent/`; misplaced markers are
+    still indexed, just flagged.
     """
     conn.execute("DELETE FROM scry__warning WHERE file_path = ?", (rel_path,))
     in_agent = _under_agent(rel_path)
@@ -140,17 +139,7 @@ def _record_warnings(conn: sqlite3.Connection, parsed, rel_path: str) -> int:
                 INSERT INTO scry__warning(kind, marker_kind, marker_id, file_path, message)
                 VALUES ('misplaced_doc', 'doc', ?, ?, ?)
                 """,
-                (d.id, rel_path, f"@scry.doc {d.id!r} found outside agent/. Move to agent/."),
-            )
-            n += 1
-    if in_agent:
-        for f in parsed.files:
-            conn.execute(
-                """
-                INSERT INTO scry__warning(kind, marker_kind, marker_id, file_path, message)
-                VALUES ('misplaced_file', 'file', ?, ?, ?)
-                """,
-                (f.id, rel_path, f"@scry.file {f.id!r} found inside agent/. File markers describe non-agent source."),
+                (d.id, rel_path, f"@scry.entry {d.id!r} found outside agent/. Move to agent/."),
             )
             n += 1
     return n
@@ -185,45 +174,6 @@ def upsert_doc(conn: sqlite3.Connection, marker: DocMarker, rel_path: str) -> No
                                  tags = ?, rationale = ?, applies = ?, seeded_questions = ?,
                                  ephemeral = ?, missing_since = NULL, content_hash = ?,
                                  updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                rel_path, marker.summary, marker.kind, marker.weight, marker.status,
-                marker.tags, marker.rationale, marker.applies, marker.seeded_questions,
-                ephemeral, h, _now(), marker.id,
-            ),
-        )
-
-
-def upsert_file(conn: sqlite3.Connection, marker: FileMarker, rel_path: str) -> None:
-    h = content_hash(marker.raw_body)
-    row = conn.execute(
-        "SELECT content_hash FROM scry__file WHERE id = ?", (marker.id,)
-    ).fetchone()
-    ephemeral = _is_ephemeral(rel_path)
-    if row is not None and row["content_hash"] == h and _path_unchanged(conn, "scry__file", marker.id, rel_path):
-        return
-    if row is None:
-        conn.execute(
-            """
-            INSERT INTO scry__file(id, current_path, summary, kind, weight, status, tags,
-                                   rationale, applies, seeded_questions, ephemeral, missing_since,
-                                   content_hash, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
-            """,
-            (
-                marker.id, rel_path, marker.summary, marker.kind, marker.weight, marker.status,
-                marker.tags, marker.rationale, marker.applies, marker.seeded_questions,
-                ephemeral, h, _now(), _now(),
-            ),
-        )
-    else:
-        conn.execute(
-            """
-            UPDATE scry__file SET current_path = ?, summary = ?, kind = ?, weight = ?, status = ?,
-                                  tags = ?, rationale = ?, applies = ?, seeded_questions = ?,
-                                  ephemeral = ?, missing_since = NULL, content_hash = ?,
-                                  updated_at = ?
             WHERE id = ?
             """,
             (
@@ -333,8 +283,6 @@ def reindex_file(conn: sqlite3.Connection, abs_path: Path, project_root: Path) -
 
     for d in parsed.docs:
         upsert_doc(conn, d, rel_path)
-    for f in parsed.files:
-        upsert_file(conn, f, rel_path)
     for a in parsed.anchors:
         upsert_anchor(conn, a, rel_path)
 
@@ -373,14 +321,10 @@ def reindex_file(conn: sqlite3.Connection, abs_path: Path, project_root: Path) -
 
 
 def handle_file_deletion(conn: sqlite3.Connection, rel_path: str) -> None:
-    """Soft-delete docs/files; hard-delete anchors/impls/tests for a removed file."""
+    """Soft-delete docs; hard-delete anchors/impls/tests for a removed file."""
     now = _now()
     conn.execute(
         "UPDATE scry__doc SET missing_since = ? WHERE current_path = ? AND missing_since IS NULL",
-        (now, rel_path),
-    )
-    conn.execute(
-        "UPDATE scry__file SET missing_since = ? WHERE current_path = ? AND missing_since IS NULL",
         (now, rel_path),
     )
     conn.execute("DELETE FROM scry__anchor WHERE current_path = ?", (rel_path,))
@@ -391,14 +335,10 @@ def handle_file_deletion(conn: sqlite3.Connection, rel_path: str) -> None:
 
 
 def handle_subtree_deletion(conn: sqlite3.Connection, prefix: str) -> None:
-    """Soft-delete docs/files; hard-delete anchors/impls/tests for a removed subtree."""
+    """Soft-delete docs; hard-delete anchors/impls/tests for a removed subtree."""
     now = _now()
     conn.execute(
         "UPDATE scry__doc SET missing_since = COALESCE(missing_since, ?) WHERE current_path LIKE ?",
-        (now, prefix + "%"),
-    )
-    conn.execute(
-        "UPDATE scry__file SET missing_since = COALESCE(missing_since, ?) WHERE current_path LIKE ?",
         (now, prefix + "%"),
     )
     conn.execute("DELETE FROM scry__anchor WHERE current_path LIKE ?", (prefix + "%",))
@@ -427,13 +367,13 @@ def surface(
         counts["files_scanned"] += 1
         parsed = reindex_file(conn, path, root)
         counts["markers_indexed"] += (
-            len(parsed.docs) + len(parsed.files) + len(parsed.anchors)
+            len(parsed.docs) + len(parsed.anchors)
             + len(parsed.impls) + len(parsed.tests)
         )
 
     # Flag any DB record whose current_path is not on disk.
     flagged = []
-    for table in ("scry__doc", "scry__file"):
+    for table in ("scry__doc",):
         rows = conn.execute(
             f"SELECT id, current_path FROM {table} WHERE current_path IS NOT NULL"
         ).fetchall()
@@ -448,7 +388,7 @@ def surface(
 
     deleted: list[dict[str, Any]] = []
     if force:
-        for table in ("scry__doc", "scry__file"):
+        for table in ("scry__doc",):
             rows = conn.execute(
                 f"SELECT id FROM {table} WHERE missing_since IS NOT NULL"
             ).fetchall()

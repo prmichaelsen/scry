@@ -41,13 +41,13 @@ def test_is_agent_path_src_agent_like():
 # ---------------------------------------------------------------------------
 
 MARKER_BLOCK = """\
-<!-- @scry.doc
+<!-- @scry.entry
 id: task.example~12345678
 kind: task
 summary: example
 status: active
 weight: 0.5
-@scry.doc.end -->
+@scry.entry.end -->
 
 Some content here.
 """

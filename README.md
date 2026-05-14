@@ -56,11 +56,12 @@ becomes the project root. The cache lives at
 
 ## Markers
 
-Scry recognizes five marker kinds. Block markers carry a YAML body between
-open/close tokens; line markers are single-line `@scry.<kind> <id> <ref>`.
+Scry recognizes four marker kinds per scry-spec v1.0. Block markers carry
+a YAML body between open/close tokens; line markers are single-line
+`@scry.<kind> <id> <ref>`.
 
 ```html
-<!-- @scry.doc
+<!-- @scry.entry
 id: design.auth-flow~a1b2c3d4
 kind: design
 summary: >
@@ -73,15 +74,7 @@ rationale: >
 applies: modifying auth, adding protected endpoints
 seeded_questions:
   - How does token refresh work?
-@scry.doc.end -->
-
-<!-- @scry.file
-id: file.auth-middleware~e5f6a7b8
-kind: middleware
-summary: Express middleware that validates JWT on every request
-status: active
-weight: 0.7
-@scry.file.end -->
+@scry.entry.end -->
 
 <!-- @scry.anchor auth-check~f1e2d3c4
 description: JWT validation point for protected routes
@@ -97,6 +90,22 @@ Block markers can be embedded in any host-language comment style (HTML,
 Python, JS, JSDoc, Rust, bare YAML). Comment prefixes are inferred from
 the YAML body — there is no per-language config.
 
+### `@scry.entry` kind values (v1.0 baseline)
+
+| kind | use for |
+|---|---|
+| `design` | architecture and design docs |
+| `pattern` | canonical recipes, established patterns |
+| `spec` | requirements and specifications |
+| `lesson` | post-mortems, "I tried X and it failed because Y" |
+| `internal` | service quirks, undocumented behaviors |
+| `task` | discrete work items |
+| `milestone` | phase markers, exit criteria |
+| `report` | wake/session reports |
+| `audit` | security or integrity audits |
+| `research` | research notes |
+| `code` | implementation-specific docs |
+
 ## MCP tools
 
 | Tool | Purpose |
@@ -109,10 +118,9 @@ the YAML body — there is no per-language config.
 
 ## Database schema
 
-Five marker-backed tables (`scry__doc`, `scry__file`, `scry__anchor`,
-`scry__impl`, `scry__test`) plus `doc_relationship` (with cycle detection)
-and `migration`. FTS5 is maintained via triggers on the source tables —
-no manual rebuild step.
+Four marker-backed tables (`scry__doc`, `scry__anchor`, `scry__impl`,
+`scry__test`) plus `doc_relationship` (with cycle detection) and `migration`.
+FTS5 is maintained via triggers on the source tables — no manual rebuild step.
 
 The cache is fully reconstructable from disk via `scry_surface`. The DB is
 gitignored; after `git pull`, agents call `scry_surface` to rebuild.
@@ -125,7 +133,7 @@ with a 150 ms debounce window. A lock file at
 election so multiple sessions don't race writes. The primary instance
 runs a cold scan on startup; secondaries observe and wait.
 
-On file deletion: docs and files are soft-deleted (`missing_since` set);
+On file deletion: docs are soft-deleted (`missing_since` set);
 anchors, impls, and tests are hard-deleted.
 
 ## Tests

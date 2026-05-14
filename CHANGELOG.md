@@ -4,6 +4,48 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-05-14
+
+### BREAKING CHANGES
+
+**Removed legacy `@scry.doc` and `@scry.file` markers (scry-spec v1.0).**
+
+The parser no longer recognizes `@scry.doc` or `@scry.file` block markers.
+Scry now recognizes exactly four marker kinds:
+
+- `@scry.entry` (block) — unified knowledge-graph entry
+- `@scry.anchor` (block) — named code location bookmark
+- `@scry.impl` (line) — implementation linkage
+- `@scry.test` (line) — test linkage
+
+If you have files with legacy markers, migrate them:
+
+```bash
+find . \( -name "*.md" -o -name "*.py" \) | xargs sed -i \
+  -e 's/@scry\.doc\.end/@scry.entry.end/g' \
+  -e 's/@scry\.doc/@scry.entry/g' \
+  -e 's/@scry\.file\.end/@scry.entry.end/g' \
+  -e 's/@scry\.file/@scry.entry/g'
+```
+
+### Added
+
+- **scry-spec v1.0 conformance** — four marker types only; no legacy aliases.
+- **Extended baseline kinds** — `DOC_KIND_VALUES` now includes `lesson`,
+  `report`, `audit`, `research`, and `code` in addition to the original seven.
+  Unknown kinds map to `internal` instead of being rejected.
+- **Database migration 003** — drops `scry__file` table (and its FTS/triggers),
+  recreates `scry__doc` with the expanded kind `CHECK` constraint.
+
+### Removed
+
+- `@scry.doc` marker support (parser, mint, tests, README examples)
+- `@scry.file` marker support (parser, mint, tests, README examples)
+- `FileMarker` dataclass
+- `ParseResult.files` field
+- `upsert_file` function
+- `scry__file` table, `scry__file_fts` FTS table, and related triggers
+
 ## [0.5.4] - 2026-05-14
 
 ### Added

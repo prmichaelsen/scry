@@ -7,13 +7,13 @@ from scry.service.surface import handle_file_deletion, reindex_file, surface
 
 
 DOC_BLOCK = """\
-<!-- @scry.doc
+<!-- @scry.entry
 id: task.example~12345678
 kind: task
 summary: example
 status: active
 weight: 0.5
-@scry.doc.end -->
+@scry.entry.end -->
 """
 
 
@@ -92,7 +92,7 @@ def test_handle_file_deletion_soft_deletes_doc_hard_deletes_impl(conn):
 
 def test_reindex_skips_binary(conn, project_tree):
     f = project_tree / "blob.bin"
-    f.write_bytes(b"abc\x00@scry.doc id: task.x~88888888 @scry.doc.end")
+    f.write_bytes(b"abc\x00@scry.entry id: task.x~88888888 @scry.entry.end")
     parsed = reindex_file(conn, f, project_tree)
     assert len(parsed.docs) == 0
 

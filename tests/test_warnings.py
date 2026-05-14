@@ -1,4 +1,8 @@
-"""Misplacement warnings: docs belong inside agent/, files describe non-agent source."""
+"""Misplacement warnings: docs belong inside agent/.
+
+scry-spec v1.0: @scry.file is no longer recognized; only @scry.entry and
+@scry.anchor block markers are parsed. Legacy @scry.file content is ignored.
+"""
 from __future__ import annotations
 
 from pathlib import Path
@@ -7,16 +11,17 @@ from scry.service.surface import handle_file_deletion, surface
 
 
 DOC_BLOCK = """\
-<!-- @scry.doc
+<!-- @scry.entry
 id: task.example~12345678
 kind: task
 summary: example
 status: active
 weight: 0.5
-@scry.doc.end -->
+@scry.entry.end -->
 """
 
-FILE_BLOCK = """\
+# Legacy @scry.file marker — should NOT be parsed or indexed.
+LEGACY_FILE_BLOCK = """\
 # @scry.file
 # id: file.app~aaaaaaaa
 # kind: module
@@ -46,14 +51,13 @@ def test_doc_outside_agent_warns_but_indexes(conn, project_tree):
     assert out["warnings"]["counts"].get("misplaced_doc") == 1
 
 
-def test_file_inside_agent_warns_but_indexes(conn, project_tree):
-    _write(project_tree / "agent" / "internal" / "weird.py", FILE_BLOCK)
-    surface(conn, project_root=project_tree)
-    row = conn.execute("SELECT id FROM scry__file WHERE id = 'file.app~aaaaaaaa'").fetchone()
-    assert row is not None
-    w = conn.execute("SELECT kind, marker_id FROM scry__warning").fetchall()
-    assert len(w) == 1
-    assert w[0]["kind"] == "misplaced_file"
+def test_legacy_file_marker_not_indexed(conn, project_tree):
+    """@scry.file is no longer recognized — legacy files are ignored, no warnings emitted."""
+    _write(project_tree / "agent" / "internal" / "weird.py", LEGACY_FILE_BLOCK)
+    out = surface(conn, project_root=project_tree)
+    assert out["markers_indexed"] == 0
+    rows = conn.execute("SELECT * FROM scry__warning").fetchall()
+    assert rows == []
 
 
 def test_doc_inside_agent_no_warning(conn, project_tree):
@@ -63,9 +67,11 @@ def test_doc_inside_agent_no_warning(conn, project_tree):
     assert rows == []
 
 
-def test_file_outside_agent_no_warning(conn, project_tree):
-    _write(project_tree / "src" / "app.py", FILE_BLOCK)
-    surface(conn, project_root=project_tree)
+def test_legacy_file_outside_agent_no_warning(conn, project_tree):
+    """Legacy @scry.file content outside agent/ — not parsed, no warnings."""
+    _write(project_tree / "src" / "app.py", LEGACY_FILE_BLOCK)
+    out = surface(conn, project_root=project_tree)
+    assert out["markers_indexed"] == 0
     rows = conn.execute("SELECT * FROM scry__warning").fetchall()
     assert rows == []
 
@@ -91,15 +97,3 @@ def test_warning_clears_on_file_deletion(conn, project_tree):
     assert conn.execute("SELECT COUNT(*) FROM scry__warning").fetchone()[0] == 1
     handle_file_deletion(conn, "src/stray.md")
     assert conn.execute("SELECT COUNT(*) FROM scry__warning").fetchone()[0] == 0
-
-
-def test_file_marker_indexed_when_outside_agent(conn, project_tree):
-    """Regression: confirm the surface→DB pipeline for files (not previously covered)."""
-    _write(project_tree / "src" / "app.py", FILE_BLOCK)
-    out = surface(conn, project_root=project_tree)
-    assert out["markers_indexed"] >= 1
-    rows = conn.execute("SELECT id, kind, current_path FROM scry__file").fetchall()
-    assert len(rows) == 1
-    assert rows[0]["id"] == "file.app~aaaaaaaa"
-    assert rows[0]["kind"] == "module"
-    assert rows[0]["current_path"] == "src/app.py"
