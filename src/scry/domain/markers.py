@@ -1,9 +1,14 @@
 """Marker parsing: dataclasses, regex, parser, and stripping helpers.
 
-Block markers (`@scry.doc`, `@scry.file`, `@scry.anchor`) span multiple lines
-between an open token and a `.end` close token. The open and close tokens may
-be embedded inside any host-language comment syntax — comment prefixes are
-inferred from the YAML body via :func:`strip_comment_prefix`.
+Block markers (`@scry.doc`, `@scry.file`, `@scry.anchor`, `@scry.entry`) span
+multiple lines between an open token and a `.end` close token. The open and
+close tokens may be embedded inside any host-language comment syntax — comment
+prefixes are inferred from the YAML body via :func:`strip_comment_prefix`.
+
+`@scry.entry` is the unified replacement for `@scry.doc` (legacy) and
+`@scry.file` (legacy). Both legacy kinds remain supported for backward
+compatibility but new markers should use `@scry.entry`. Entry markers are
+indexed in `scry__doc` the same as `@scry.doc` markers.
 
 Line markers (`@scry.impl`, `@scry.test`) are single-line and follow the form
 ``@scry.<kind> <id> <ref>``.
@@ -23,14 +28,14 @@ import yaml
 
 from scry.util.comments import strip_comment_prefix
 
-BLOCK_KINDS: tuple[str, ...] = ("doc", "file", "anchor")
+BLOCK_KINDS: tuple[str, ...] = ("doc", "file", "anchor", "entry")
 LINE_KINDS: tuple[str, ...] = ("impl", "test")
 
 DOC_KIND_VALUES = ("design", "spec", "task", "milestone", "clarification", "pattern", "internal")
 STATUS_VALUES = ("draft", "active", "approved", "stale", "complete")
 
-_OPEN_RE = re.compile(r"@scry\.(doc|file|anchor)(?!\.end)\b([^\n]*)")
-_CLOSE_RE = re.compile(r"@scry\.(doc|file|anchor)\.end\b")
+_OPEN_RE = re.compile(r"@scry\.(doc|file|anchor|entry)(?!\.end)\b([^\n]*)")
+_CLOSE_RE = re.compile(r"@scry\.(doc|file|anchor|entry)\.end\b")
 _LINE_RE = re.compile(r"@scry\.(impl|test)\s+(\S+)\s+(\S+)")
 
 
@@ -236,7 +241,7 @@ def parse_markers(content: str) -> ParseResult:
             span=span,
         )
 
-        if kind == "doc":
+        if kind in ("doc", "entry"):
             doc_kind = _coerce_text(data.get("kind")) or "internal"
             if doc_kind not in DOC_KIND_VALUES:
                 doc_kind = "internal"

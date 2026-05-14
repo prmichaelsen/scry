@@ -4,6 +4,17 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.4] - 2026-05-14
+
+### Added
+
+- **`@scry.entry` block marker** — unified replacement for `@scry.doc` (markdown) and
+  `@scry.file` (code). Both legacy kinds remain supported for backward compatibility.
+  `@scry.entry` indexes into `scry__doc`, eliminating agent confusion about which marker
+  type to use. See design doc at `~/.acp/agent/design/scry-entry-marker-migration.md`.
+- **`entry` mint kind** — `scry_mint kind=entry prefix=design.X` now works and returns
+  the `@scry.entry` template. Prefix rules match `doc` (must contain a dot).
+
 ## [0.5.3] - 2026-05-14
 
 ### Fixed
