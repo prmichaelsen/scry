@@ -1,4 +1,5 @@
 .claude/
+agent/
 __pycache__/
 *.pyc
 *.pyo
