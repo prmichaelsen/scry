@@ -4,6 +4,18 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.4] - 2026-05-14
+
+### Fixed
+
+- **`__version__` string corrected to match `pyproject.toml`** — releases 0.10.1 through 0.10.3
+  were published with `__version__ = "0.10.0"` in `src/scry/__init__.py` because the string
+  was not updated when `pyproject.toml` was bumped. `scry --version` and any programmatic
+  read of `scry.__version__` reported the wrong value. Now `__version__ = "0.10.4"` and
+  matches the installed package version.
+
+---
+
 ## [0.10.3] - 2026-05-14
 
 ### Fixed
