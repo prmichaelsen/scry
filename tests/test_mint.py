@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 
-from scry.service.mint import mint, VALID_KINDS
+from scry.service.mint import mint, VALID_KINDS, _check_collisions
 
 
 def test_mint_entry_returns_id_and_schema(conn):
@@ -105,3 +105,94 @@ def test_mint_entry_status_hint_mentions_deprecated(conn):
     out = mint(conn, "entry", "design.x")
     status_hint = out["schema"]["fields"]["status"]
     assert "deprecated" in status_hint
+
+
+# ---------------------------------------------------------------------------
+# Collision detection tests (tier-1 / tier-2)
+# ---------------------------------------------------------------------------
+
+
+def test_mint_no_collisions_when_db_empty(conn):
+    """No collision keys returned when DB is empty."""
+    out = mint(conn, "entry", "design.auth-flow")
+    assert "tier1_collisions" not in out
+    assert "tier2_neighbors" not in out
+
+
+def test_mint_tier1_collision_same_prefix(conn):
+    """tier1_collisions returned when same prefix~hash already exists."""
+    conn.execute(
+        "INSERT INTO scry__doc(id, kind, status, summary) "
+        "VALUES ('design.auth-flow~a1b2c3d4', 'design', 'active', 'existing auth design')"
+    )
+    conn.commit()
+    out = mint(conn, "entry", "design.auth-flow")
+    assert "tier1_collisions" in out
+    assert len(out["tier1_collisions"]) == 1
+    assert out["tier1_collisions"][0]["id"] == "design.auth-flow~a1b2c3d4"
+    assert out["tier1_collisions"][0]["summary"] == "existing auth design"
+
+
+def test_mint_tier2_neighbor_same_family(conn):
+    """tier2_neighbors returned for markers in same kind+first-segment family."""
+    conn.execute(
+        "INSERT INTO scry__doc(id, kind, status, summary) "
+        "VALUES ('design.auth-check~b2c3d4e5', 'design', 'active', 'auth check pattern')"
+    )
+    conn.commit()
+    # prefix "design.auth-flow" → first seg "auth" → family "design.auth%"
+    # "design.auth-check~..." is a tier-2 neighbor (different suffix, same family)
+    out = mint(conn, "entry", "design.auth-flow")
+    assert "tier2_neighbors" in out
+    ids = [n["id"] for n in out["tier2_neighbors"]]
+    assert "design.auth-check~b2c3d4e5" in ids
+
+
+def test_mint_tier1_excluded_from_tier2(conn):
+    """tier1_collisions and tier2_neighbors are disjoint sets."""
+    conn.execute(
+        "INSERT INTO scry__doc(id, kind, status, summary) "
+        "VALUES ('design.auth-flow~a1b2c3d4', 'design', 'active', 'same prefix')"
+    )
+    conn.execute(
+        "INSERT INTO scry__doc(id, kind, status, summary) "
+        "VALUES ('design.auth-check~b2c3d4e5', 'design', 'active', 'family neighbor')"
+    )
+    conn.commit()
+    out = mint(conn, "entry", "design.auth-flow")
+    tier1_ids = {c["id"] for c in out.get("tier1_collisions", [])}
+    tier2_ids = {n["id"] for n in out.get("tier2_neighbors", [])}
+    assert tier1_ids.isdisjoint(tier2_ids), "tier-1 and tier-2 must be disjoint"
+
+
+def test_mint_bind_no_collision_check(conn):
+    """bind minting never returns collision keys (file-scoped, no global check)."""
+    out = mint(conn, "bind", "validate-jwt")
+    assert "tier1_collisions" not in out
+    assert "tier2_neighbors" not in out
+
+
+def test_mint_anchor_tier1_collision(conn):
+    """Collision detection works for anchor kind too."""
+    conn.execute(
+        "INSERT INTO scry__anchor(name, description) "
+        "VALUES ('auth-check~f1e2d3c4', 'JWT check point')"
+    )
+    conn.commit()
+    out = mint(conn, "anchor", "auth-check")
+    assert "tier1_collisions" in out
+    assert out["tier1_collisions"][0]["id"] == "auth-check~f1e2d3c4"
+
+
+def test_check_collisions_direct_empty(conn):
+    """_check_collisions returns empty lists on empty DB."""
+    tier1, tier2 = _check_collisions(conn, "entry", "design.auth")
+    assert tier1 == []
+    assert tier2 == []
+
+
+def test_check_collisions_bind_returns_empty(conn):
+    """_check_collisions always returns ([], []) for bind."""
+    tier1, tier2 = _check_collisions(conn, "bind", "impl-x")
+    assert tier1 == []
+    assert tier2 == []

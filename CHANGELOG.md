@@ -4,6 +4,35 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-05-14
+
+### Added
+
+- **`scry_mint` now returns collision warnings** — `mint()` service function
+  and `scry_mint` MCP tool return `tier1_collisions` and `tier2_neighbors`
+  alongside the freshly-minted ID when matching markers exist in the DB.
+
+  - **Tier 1** (`tier1_collisions`): markers with the same prefix already in
+    scry. If a tier-1 hit is the same logical concept, abandon the new ID and
+    reference the existing one — stranded IDs pollute scry.
+  - **Tier 2** (`tier2_neighbors`): markers in the same kind + first-segment
+    family (informational; may reveal related prior work).
+  - `bind` minting is exempt — bind IDs are file-scoped, no global collision
+    semantics apply.
+
+  This makes `scry_mint` equivalent to the previously-separate
+  `scry_mint_with_check` wrapper, unifying the two call sites.
+
+### Internal
+
+- `_check_collisions(conn, kind, prefix)` added to `scry/service/mint.py`.
+- `_SUMMARY_COL` mapping added to support per-table summary column lookup.
+- 10 new tests covering tier-1 exact-prefix collisions, tier-2 family
+  neighbors, tier-1/tier-2 disjointness, bind exemption, and anchor kind.
+- 83/83 tests pass.
+
+---
+
 ## [0.8.0] - 2026-05-14
 
 ### Changed
