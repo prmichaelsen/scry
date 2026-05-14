@@ -4,6 +4,22 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2026-05-14
+
+### Added
+
+- **`scry_mint_with_check` MCP tool** — preferred minter; wraps `scry_mint` with clearer
+  docstring framing and is the explicit preferred entry point for agents. Exposes the same
+  tier-1/tier-2 collision warnings already present in `scry_mint` but under a name that
+  signals its recommended status. Register via `mcp.tool()(scry_mint_with_check)`.
+
+### Changed
+
+- **Upgraded `scry-parse` dependency from 1.0.0 to 1.0.2** — picks up block-comment
+  support (JSDoc `/** */`, C `/* */`, OCaml `(* *)`, Haskell `{- -}`, PowerShell `<# #>`)
+  added in v1.0.1. Without this, scry markers inside block-comment style in `.js`/`.ts`/
+  `.c`/`.hs` files silently failed to parse. Also includes `check_cycles()` added in v1.0.2.
+
 ## [0.10.1] - 2026-05-14
 
 ### Fixed
