@@ -11,6 +11,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `__version__` in `__init__.py` now correctly reports `0.5.3` (was accidentally left at
   `0.5.1` in 0.5.2 — all watcher fixes were present; only the version string was wrong).
 - `sys` import moved to module level in `watcher.py` for cleaner style.
+- **Startup sanity check**: `cold_scan` now logs the surface result to `stderr` when
+  net-new markers are indexed or markers are flagged missing. When >5 net-new docs are
+  discovered, it emits an explicit `WARNING` line noting that watcher drift likely occurred.
+  Makes behind-watcher situations visible in server logs without manual inspection.
 
 ## [0.5.2] - 2026-05-14
 
