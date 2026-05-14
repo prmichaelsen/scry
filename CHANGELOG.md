@@ -4,6 +4,70 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-05-14
+
+### BREAKING CHANGES
+
+**Replaced `@scry.impl` / `@scry.test` with `@scry.bind` (scry-spec v1.0 FR2).**
+
+The parser no longer recognizes `@scry.impl` or `@scry.test` line markers.
+Scry now recognizes exactly three marker kinds:
+
+- `@scry.entry` (block) — unified knowledge-graph entry
+- `@scry.anchor` (block) — named code location bookmark
+- `@scry.bind` (line or block) — universal binding marker (replaces impl + test)
+
+**Database tables `scry__impl` and `scry__test` are dropped** (migration 004).
+Data from these tables is not migrated — these were index tables rebuilt from
+source scans. Re-run `scry surface` after upgrading to repopulate `scry__bind`.
+
+**`scry__doc` kind and status columns no longer have CHECK constraints.**
+Unknown kind and status values are preserved as-is (FR8/FR9).
+
+If you have files with `@scry.impl` or `@scry.test`, migrate them:
+
+```bash
+# @scry.impl validate-jwt~a1b2c3d4 spec.auth~xyz#FR3
+# becomes:
+# @scry.bind validate-jwt~a1b2c3d4 spec.auth~xyz#FR3
+
+find . -name "*.py" -o -name "*.ts" | xargs sed -i \
+  -e 's/@scry\.impl/@scry.bind/g' \
+  -e 's/@scry\.test/@scry.bind/g'
+```
+
+### Added
+
+- **`@scry.bind` marker** — universal binding marker per scry-spec v1.0 FR2.
+  Replaces the separate `@scry.impl` and `@scry.test` markers with a single
+  generic binding that relates any source to any target artifact or anchor.
+- **Block form for `@scry.bind`** — multi-line commentary via
+  `@scry.bind {local-id} {ref}` + free-form text + `@scry.bind.end`.
+- **Comma-expanded loose anchors** — a single `@scry.bind` with
+  `spec.auth~xyz#FR1,FR2,FR3` expands to three binding records.
+- **Optional `comment` field** — free-form text after the ref on single-line
+  form is indexed and queryable.
+- **`scry__bind` table** — stores binding records with `local_id`, `ref`,
+  `comment`, `file_path`, `content_hash` fields.
+- **Migration 004** — creates `scry__bind`, drops `scry__impl`/`scry__test`,
+  and relaxes `scry__doc` kind/status constraints.
+- **Kind preservation (FR8)** — unknown kind values are stored as-is;
+  no silent coercion to `internal`.
+- **Status preservation (FR9)** — custom status values preserved as-is.
+- **v1.0 baseline statuses** — `STATUS_VALUES = ("draft", "active", "deprecated")`.
+
+### Removed
+
+- `@scry.impl` line marker — replaced by `@scry.bind`.
+- `@scry.test` line marker — replaced by `@scry.bind`.
+- `ImplMarker` / `TestMarker` dataclasses — replaced by `BindMarker`.
+- `ParseResult.impls` / `ParseResult.tests` fields — replaced by `ParseResult.binds`.
+- `upsert_impl()` / `upsert_test()` surface helpers — replaced by `upsert_bind()`.
+- `scry__impl` and `scry__test` tables.
+- Kind coercion: unknown kinds no longer silently map to `internal`.
+- Old status values `approved`, `stale`, `complete` from `STATUS_VALUES`
+  (these continue to work as custom values and are preserved as-is).
+
 ## [0.6.0] - 2026-05-14
 
 ### BREAKING CHANGES

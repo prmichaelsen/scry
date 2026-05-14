@@ -12,10 +12,10 @@ async def scry_mint(kind: str, prefix: str) -> str:
     returned instructions exactly when filling fields.
 
     Args:
-        kind: "doc", "file", "anchor", "impl", or "test"
+        kind: "entry", "anchor", or "bind"
         prefix: Human-readable prefix.
-                doc/file: MUST contain a dot (e.g. "design.auth-flow", "task.fix-bug")
-                anchor/impl/test: MUST NOT contain dots (e.g. "auth-check", "validate-jwt")
+                entry: MUST contain a dot (e.g. "design.auth-flow", "task.fix-bug")
+                anchor/bind: MUST NOT contain dots (e.g. "auth-check", "validate-jwt")
 
     Returns JSON with: id, marker_open, marker_close, fields (with per-field
     instructions), and file info (directory, filename, path).

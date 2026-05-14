@@ -16,8 +16,8 @@ async def scry_sql(query: str) -> str:
     Key tables:
       scry__doc        — knowledge graph entries (@scry.entry markers: designs, specs, tasks, lessons, etc.)
       scry__anchor     — named code location bookmarks with descriptions and seeded questions
-      scry__impl       — implementation markers linking source code to requirement refs (DR/FR)
-      scry__test       — test markers linking test files to test requirement refs (UT/ST/ET)
+      scry__bind       — binding markers (@scry.bind) linking sources to artifact refs or anchors
+      scry__bind_fts   — full-text search over bindings (local_id, ref, comment)
       doc_relationship — typed edges between docs (depends_on only)
       scry__warning    — lint-style warnings (e.g. misplaced_doc)
       scry__doc_fts    — full-text search over docs (summary, tags, rationale, applies, seeded_questions)

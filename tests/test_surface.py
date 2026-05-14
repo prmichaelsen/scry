@@ -16,6 +16,8 @@ weight: 0.5
 @scry.entry.end -->
 """
 
+BIND_LINE = "# @scry.bind impl-x~aabbccdd spec.x~yz#FR1\n"
+
 
 def _write(p: Path, body: str) -> None:
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -72,22 +74,25 @@ def test_surface_force_deletes_missing(conn, project_tree):
     assert row is None
 
 
-def test_handle_file_deletion_soft_deletes_doc_hard_deletes_impl(conn):
+def test_handle_file_deletion_soft_deletes_doc_hard_deletes_bind(conn):
     rel = "src/foo.py"
     conn.execute(
         "INSERT INTO scry__doc(id, kind, status, current_path) VALUES ('task.x~aaaaaaaa','task','active',?)",
         (rel,),
     )
     conn.execute(
-        "INSERT INTO scry__impl(id, ref, file_path) VALUES ('imp~bbbbbbbb','spec.x~yz#FR1',?)",
+        "INSERT INTO scry__bind(local_id, ref, file_path) VALUES ('impl~bbbbbbbb','spec.x~yz#FR1',?)",
         (rel,),
     )
     conn.commit()
     handle_file_deletion(conn, rel)
     doc = conn.execute("SELECT missing_since FROM scry__doc WHERE id='task.x~aaaaaaaa'").fetchone()
     assert doc is not None and doc["missing_since"] is not None
-    impl = conn.execute("SELECT id FROM scry__impl WHERE id='imp~bbbbbbbb'").fetchone()
-    assert impl is None
+    bind = conn.execute(
+        "SELECT local_id FROM scry__bind WHERE local_id='impl~bbbbbbbb' AND file_path=?",
+        (rel,),
+    ).fetchone()
+    assert bind is None
 
 
 def test_reindex_skips_binary(conn, project_tree):
@@ -124,3 +129,26 @@ def test_fts_auto_syncs_after_index(conn, project_tree):
         "SELECT id FROM scry__doc_fts WHERE scry__doc_fts MATCH 'example'"
     ).fetchall()
     assert any(r["id"] == "task.example~12345678" for r in rows)
+
+
+def test_surface_indexes_bind_markers(conn, project_tree):
+    """Bind markers are indexed via surface."""
+    content = DOC_BLOCK + BIND_LINE
+    _write(project_tree / "agent" / "tasks" / "ex.md", content)
+    surface(conn, project_root=project_tree)
+    rows = conn.execute(
+        "SELECT local_id, ref FROM scry__bind WHERE local_id = 'impl-x~aabbccdd'"
+    ).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["ref"] == "spec.x~yz#FR1"
+
+
+def test_bind_fts_searchable(conn, project_tree):
+    """Bind comments are searchable via FTS (FR2 requirement)."""
+    content = "# @scry.bind impl-y~bbccddee spec.y~ab#FR2 OAuth integration pending\n"
+    _write(project_tree / "agent" / "tasks" / "ex.md", content)
+    surface(conn, project_root=project_tree)
+    rows = conn.execute(
+        "SELECT local_id FROM scry__bind_fts WHERE scry__bind_fts MATCH 'OAuth'"
+    ).fetchall()
+    assert len(rows) >= 1

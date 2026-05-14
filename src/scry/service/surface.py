@@ -13,10 +13,9 @@ from typing import Any, Iterable
 from scry.config import BINARY_SNIFF_BYTES, EXCLUDED_DIRS, get_project_root
 from scry.domain.markers import (
     AnchorMarker,
+    BindMarker,
     DocMarker,
-    ImplMarker,
     ParseResult,
-    TestMarker,
     content_hash,
     parse_markers,
 )
@@ -71,17 +70,9 @@ def _is_gitignored(path: Path, gitignore_specs: "dict[Path, Any]") -> bool:
 
 
 def _walk_project(root: Path) -> Iterable[Path]:
-    """Walk project tree following symlinks (DR10) with cycle detection and .gitignore filtering (DR12).
-
-    gitignore_specs is keyed by the REAL (resolved) path of each directory that has
-    a .gitignore. This means:
-    - A directory symlink is traversed into its resolved target.
-    - .gitignore patterns in the linking project are only compared against real paths
-      within that project, so they cannot accidentally filter files in linked projects.
-    - Each linked project's own .gitignore is loaded and applied within its real subtree.
-    """
+    """Walk project tree following symlinks with cycle detection and .gitignore filtering."""
     visited: set[Path] = set()
-    gitignore_specs: dict[Path, Any] = {}  # real_dir_path -> PathSpec
+    gitignore_specs: dict[Path, Any] = {}
 
     for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
         dp = Path(dirpath)
@@ -91,19 +82,16 @@ def _walk_project(root: Path) -> Iterable[Path]:
             continue
         visited.add(real)
 
-        # Load .gitignore for this directory, keyed by its REAL path (DR12)
         spec = _load_gitignore_spec(dp)
         if spec is not None:
             gitignore_specs[real] = spec
 
-        # Filter excluded dirs and gitignored dirs.
-        # Symlinked directories bypass gitignore (traversal is the point).
         dirnames[:] = [
             d for d in dirnames
             if d not in EXCLUDED_DIRS
             and not d.startswith(".")
             and (
-                (dp / d).is_symlink()  # symlinks always traversed
+                (dp / d).is_symlink()
                 or not _is_gitignored(dp / d, gitignore_specs)
             )
         ]
@@ -124,11 +112,7 @@ def _under_agent(rel_path: str) -> bool:
 
 
 def _record_warnings(conn: sqlite3.Connection, parsed, rel_path: str) -> int:
-    """Replace any prior warnings for `rel_path` with the current state.
-
-    Rule: entry markers (docs) belong inside `agent/`; misplaced markers are
-    still indexed, just flagged.
-    """
+    """Replace any prior warnings for `rel_path` with the current state."""
     conn.execute("DELETE FROM scry__warning WHERE file_path = ?", (rel_path,))
     in_agent = _under_agent(rel_path)
     n = 0
@@ -214,53 +198,35 @@ def upsert_anchor(conn: sqlite3.Connection, marker: AnchorMarker, rel_path: str)
         )
 
 
-def upsert_impl(conn: sqlite3.Connection, marker: ImplMarker, rel_path: str) -> None:
+def upsert_bind(conn: sqlite3.Connection, marker: BindMarker, rel_path: str) -> None:
+    """Upsert a @scry.bind marker record.
+
+    The uniqueness key is (local_id, ref, file_path): comma-expanded binds share
+    the same local_id but have distinct refs, and all must be stored independently.
+    """
     h = content_hash(marker.raw_body)
     row = conn.execute(
-        "SELECT content_hash, ref, file_path FROM scry__impl WHERE id = ?", (marker.id,)
+        "SELECT content_hash FROM scry__bind WHERE local_id = ? AND ref = ? AND file_path = ?",
+        (marker.local_id, marker.ref, rel_path),
     ).fetchone()
-    if row is not None and row["content_hash"] == h and row["ref"] == marker.ref and row["file_path"] == rel_path:
+    if row is not None and row["content_hash"] == h:
         return
     if row is None:
         conn.execute(
             """
-            INSERT INTO scry__impl(id, ref, file_path, content_hash, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO scry__bind(local_id, ref, comment, file_path, content_hash,
+                                   created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (marker.id, marker.ref, rel_path, h, _now(), _now()),
+            (marker.local_id, marker.ref, marker.comment, rel_path, h, _now(), _now()),
         )
     else:
         conn.execute(
             """
-            UPDATE scry__impl SET ref = ?, file_path = ?, content_hash = ?, updated_at = ?
-            WHERE id = ?
+            UPDATE scry__bind SET comment = ?, content_hash = ?, updated_at = ?
+            WHERE local_id = ? AND ref = ? AND file_path = ?
             """,
-            (marker.ref, rel_path, h, _now(), marker.id),
-        )
-
-
-def upsert_test(conn: sqlite3.Connection, marker: TestMarker, rel_path: str) -> None:
-    h = content_hash(marker.raw_body)
-    row = conn.execute(
-        "SELECT content_hash, ref, file_path FROM scry__test WHERE id = ?", (marker.id,)
-    ).fetchone()
-    if row is not None and row["content_hash"] == h and row["ref"] == marker.ref and row["file_path"] == rel_path:
-        return
-    if row is None:
-        conn.execute(
-            """
-            INSERT INTO scry__test(id, ref, file_path, content_hash, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (marker.id, marker.ref, rel_path, h, _now(), _now()),
-        )
-    else:
-        conn.execute(
-            """
-            UPDATE scry__test SET ref = ?, file_path = ?, content_hash = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (marker.ref, rel_path, h, _now(), marker.id),
+            (marker.comment, h, _now(), marker.local_id, marker.ref, rel_path),
         )
 
 
@@ -270,7 +236,7 @@ def _path_unchanged(conn: sqlite3.Connection, table: str, ident: str, rel_path: 
 
 
 def reindex_file(conn: sqlite3.Connection, abs_path: Path, project_root: Path) -> ParseResult:
-    """Parse a single file and upsert its markers. Also clear stale impl/test/anchor
+    """Parse a single file and upsert its markers. Also clear stale bind/anchor
     rows that previously came from this path but no longer do."""
     rel_path = str(abs_path.relative_to(project_root))
     if _is_binary(abs_path):
@@ -286,22 +252,19 @@ def reindex_file(conn: sqlite3.Connection, abs_path: Path, project_root: Path) -
     for a in parsed.anchors:
         upsert_anchor(conn, a, rel_path)
 
-    # Hard-delete impl/test rows that previously belonged to this file but were not seen this pass.
-    seen_impl_ids = {m.id for m in parsed.impls}
-    seen_test_ids = {m.id for m in parsed.tests}
+    # Hard-delete bind rows that previously belonged to this file but were not seen this pass.
+    # Use (local_id, ref) pairs as the key since comma expansion produces multiple rows per local_id.
+    seen_bind_keys = {(m.local_id, m.ref) for m in parsed.binds}
     seen_anchor_names = {m.name for m in parsed.anchors}
 
-    existing_impls = {r["id"] for r in conn.execute(
-        "SELECT id FROM scry__impl WHERE file_path = ?", (rel_path,)
+    existing_binds = {(r["local_id"], r["ref"]) for r in conn.execute(
+        "SELECT local_id, ref FROM scry__bind WHERE file_path = ?", (rel_path,)
     ).fetchall()}
-    for stale_id in existing_impls - seen_impl_ids:
-        conn.execute("DELETE FROM scry__impl WHERE id = ?", (stale_id,))
-
-    existing_tests = {r["id"] for r in conn.execute(
-        "SELECT id FROM scry__test WHERE file_path = ?", (rel_path,)
-    ).fetchall()}
-    for stale_id in existing_tests - seen_test_ids:
-        conn.execute("DELETE FROM scry__test WHERE id = ?", (stale_id,))
+    for stale_local_id, stale_ref in existing_binds - seen_bind_keys:
+        conn.execute(
+            "DELETE FROM scry__bind WHERE local_id = ? AND ref = ? AND file_path = ?",
+            (stale_local_id, stale_ref, rel_path),
+        )
 
     existing_anchors = {r["name"] for r in conn.execute(
         "SELECT name FROM scry__anchor WHERE current_path = ?", (rel_path,)
@@ -309,10 +272,8 @@ def reindex_file(conn: sqlite3.Connection, abs_path: Path, project_root: Path) -
     for stale_name in existing_anchors - seen_anchor_names:
         conn.execute("DELETE FROM scry__anchor WHERE name = ?", (stale_name,))
 
-    for impl in parsed.impls:
-        upsert_impl(conn, impl, rel_path)
-    for test in parsed.tests:
-        upsert_test(conn, test, rel_path)
+    for bind in parsed.binds:
+        upsert_bind(conn, bind, rel_path)
 
     _record_warnings(conn, parsed, rel_path)
 
@@ -321,29 +282,27 @@ def reindex_file(conn: sqlite3.Connection, abs_path: Path, project_root: Path) -
 
 
 def handle_file_deletion(conn: sqlite3.Connection, rel_path: str) -> None:
-    """Soft-delete docs; hard-delete anchors/impls/tests for a removed file."""
+    """Soft-delete docs; hard-delete anchors/binds for a removed file."""
     now = _now()
     conn.execute(
         "UPDATE scry__doc SET missing_since = ? WHERE current_path = ? AND missing_since IS NULL",
         (now, rel_path),
     )
     conn.execute("DELETE FROM scry__anchor WHERE current_path = ?", (rel_path,))
-    conn.execute("DELETE FROM scry__impl WHERE file_path = ?", (rel_path,))
-    conn.execute("DELETE FROM scry__test WHERE file_path = ?", (rel_path,))
+    conn.execute("DELETE FROM scry__bind WHERE file_path = ?", (rel_path,))
     conn.execute("DELETE FROM scry__warning WHERE file_path = ?", (rel_path,))
     conn.commit()
 
 
 def handle_subtree_deletion(conn: sqlite3.Connection, prefix: str) -> None:
-    """Soft-delete docs; hard-delete anchors/impls/tests for a removed subtree."""
+    """Soft-delete docs; hard-delete anchors/binds for a removed subtree."""
     now = _now()
     conn.execute(
         "UPDATE scry__doc SET missing_since = COALESCE(missing_since, ?) WHERE current_path LIKE ?",
         (now, prefix + "%"),
     )
     conn.execute("DELETE FROM scry__anchor WHERE current_path LIKE ?", (prefix + "%",))
-    conn.execute("DELETE FROM scry__impl WHERE file_path LIKE ?", (prefix + "%",))
-    conn.execute("DELETE FROM scry__test WHERE file_path LIKE ?", (prefix + "%",))
+    conn.execute("DELETE FROM scry__bind WHERE file_path LIKE ?", (prefix + "%",))
     conn.execute("DELETE FROM scry__warning WHERE file_path LIKE ?", (prefix + "%",))
     conn.commit()
 
@@ -367,8 +326,7 @@ def surface(
         counts["files_scanned"] += 1
         parsed = reindex_file(conn, path, root)
         counts["markers_indexed"] += (
-            len(parsed.docs) + len(parsed.anchors)
-            + len(parsed.impls) + len(parsed.tests)
+            len(parsed.docs) + len(parsed.anchors) + len(parsed.binds)
         )
 
     # Flag any DB record whose current_path is not on disk.
@@ -395,16 +353,22 @@ def surface(
             for r in rows:
                 conn.execute(f"DELETE FROM {table} WHERE id = ?", (r["id"],))
                 deleted.append({"table": table, "id": r["id"]})
-        # Anchors/impls/tests for missing paths can also be cleared.
-        for table, col in (("scry__anchor", "current_path"), ("scry__impl", "file_path"), ("scry__test", "file_path")):
+        # Anchors/binds for missing paths can also be cleared.
+        for table, col in (
+            ("scry__anchor", "current_path"),
+            ("scry__bind", "file_path"),
+        ):
             rows = conn.execute(
                 f"SELECT * FROM {table} WHERE {col} IS NOT NULL"
             ).fetchall()
             for r in rows:
                 cp = r[col]
                 if cp not in visited_paths:
-                    key_col = "name" if table == "scry__anchor" else "id"
-                    conn.execute(f"DELETE FROM {table} WHERE {key_col} = ?", (r[key_col],))
+                    key_col = "name" if table == "scry__anchor" else "local_id"
+                    conn.execute(
+                        f"DELETE FROM {table} WHERE {key_col} = ? AND {col} = ?",
+                        (r[key_col], cp),
+                    )
                     deleted.append({"table": table, key_col: r[key_col]})
     conn.commit()
 

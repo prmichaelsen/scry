@@ -6,6 +6,7 @@ from scry.domain.markers import (
     strip_markers_from_content,
     content_hash,
     DOC_KIND_VALUES,
+    STATUS_VALUES,
 )
 from scry.util.comments import strip_comment_prefix
 
@@ -53,9 +54,21 @@ seeded_questions:
 @scry.anchor.end -->
 """
 
-LINE_MARKERS = """\
-# @scry.impl validate-jwt~a1b2c3d4 spec.auth~xyz#FR3
-# @scry.test jwt-expiry~b2c3d4e5 spec.auth~xyz#UT1
+BIND_SINGLE_LINE = """\
+# @scry.bind validate-jwt~a1b2c3d4 spec.auth~xyz#FR3
+# @scry.bind jwt-expiry~b2c3d4e5 spec.auth~xyz#UT1 tests token expiry
+"""
+
+BIND_WITH_COMMENT = """\
+# @scry.bind validate-jwt~a1b2c3d4 spec.auth~xyz#FR3 partial impl, OAuth pending
+"""
+
+BIND_BLOCK = """\
+# @scry.bind validate-jwt~a1b2c3d4 spec.auth~xyz#FR3
+# Partial implementation. Currently handles:
+#   - JWT signature validation
+#   - Token expiry checks
+# @scry.bind.end
 """
 
 
@@ -94,30 +107,82 @@ def test_parse_anchor_block():
     assert "expired" in a.seeded_questions
 
 
-def test_parse_line_markers():
-    r = parse_markers(LINE_MARKERS)
-    assert len(r.impls) == 1
-    assert r.impls[0].id == "validate-jwt~a1b2c3d4"
-    assert r.impls[0].ref == "spec.auth~xyz#FR3"
-    assert len(r.tests) == 1
-    assert r.tests[0].id == "jwt-expiry~b2c3d4e5"
-    assert r.tests[0].ref == "spec.auth~xyz#UT1"
+# ---------------------------------------------------------------------------
+# @scry.bind tests (FR2, FR3)
+# ---------------------------------------------------------------------------
+
+def test_parse_bind_single_line_no_comment():
+    r = parse_markers("# @scry.bind validate-jwt~a1b2c3d4 spec.auth~xyz#FR3\n")
+    assert len(r.binds) == 1
+    b = r.binds[0]
+    assert b.local_id == "validate-jwt~a1b2c3d4"
+    assert b.ref == "spec.auth~xyz#FR3"
+    assert b.comment is None
 
 
-def test_positional_exclusion_skips_impl_inside_entry():
+def test_parse_bind_single_line_with_comment():
+    r = parse_markers(BIND_WITH_COMMENT)
+    assert len(r.binds) == 1
+    b = r.binds[0]
+    assert b.local_id == "validate-jwt~a1b2c3d4"
+    assert b.ref == "spec.auth~xyz#FR3"
+    assert b.comment == "partial impl, OAuth pending"
+
+
+def test_parse_bind_multiple_single_line():
+    r = parse_markers(BIND_SINGLE_LINE)
+    assert len(r.binds) == 2
+    assert r.binds[0].local_id == "validate-jwt~a1b2c3d4"
+    assert r.binds[0].ref == "spec.auth~xyz#FR3"
+    assert r.binds[0].comment is None
+    assert r.binds[1].local_id == "jwt-expiry~b2c3d4e5"
+    assert r.binds[1].ref == "spec.auth~xyz#UT1"
+    assert r.binds[1].comment == "tests token expiry"
+
+
+def test_parse_bind_block_form():
+    """FR2: block form captures multi-line body as comment."""
+    r = parse_markers(BIND_BLOCK)
+    assert len(r.binds) == 1
+    b = r.binds[0]
+    assert b.local_id == "validate-jwt~a1b2c3d4"
+    assert b.ref == "spec.auth~xyz#FR3"
+    assert b.comment is not None
+    assert "Partial implementation" in b.comment
+    assert "JWT signature validation" in b.comment
+    assert "Token expiry checks" in b.comment
+
+
+def test_parse_bind_block_form_mutual_exclusion():
+    """FR2: block form with inline comment is invalid — skipped silently."""
     content = (
-        ENTRY_HTML.replace("@scry.entry.end", "@scry.impl foo~12345678 spec.x~abc#FR1\n@scry.entry.end")
+        "# @scry.bind validate-jwt~a1b2c3d4 spec.auth~xyz#FR3 inline comment here\n"
+        "# body line\n"
+        "# @scry.bind.end\n"
     )
     r = parse_markers(content)
-    assert len(r.impls) == 0
+    # Malformed (mixed inline+block) — silently skipped per spec
+    assert len(r.binds) == 0
+
+
+def test_positional_exclusion_skips_bind_inside_entry():
+    """FR3: bind markers inside declarative blocks are excluded."""
+    content = (
+        ENTRY_HTML.replace(
+            "@scry.entry.end",
+            "# @scry.bind foo~12345678 spec.x~abc#FR1\n@scry.entry.end",
+        )
+    )
+    r = parse_markers(content)
+    assert len(r.binds) == 0
     assert len(r.docs) == 1
 
 
-def test_includes_impl_after_closed_entry():
-    content = ENTRY_HTML + "\n# @scry.impl bar~b2345678 spec.x~abc#FR2\n"
+def test_includes_bind_after_closed_entry():
+    content = ENTRY_HTML + "\n# @scry.bind bar~b2345678 spec.x~abc#FR2\n"
     r = parse_markers(content)
-    assert len(r.impls) == 1
-    assert r.impls[0].id == "bar~b2345678"
+    assert len(r.binds) == 1
+    assert r.binds[0].local_id == "bar~b2345678"
 
 
 def test_doc_kind_values_v1_baseline():
@@ -127,17 +192,45 @@ def test_doc_kind_values_v1_baseline():
         assert kind in DOC_KIND_VALUES, f"{kind!r} missing from DOC_KIND_VALUES"
 
 
-def test_entry_unknown_kind_maps_to_internal():
+def test_status_values_v1_baseline():
+    """v1.0 baseline statuses are draft, active, deprecated."""
+    assert "draft" in STATUS_VALUES
+    assert "active" in STATUS_VALUES
+    assert "deprecated" in STATUS_VALUES
+    # old values should NOT be in the baseline
+    assert "approved" not in STATUS_VALUES
+    assert "stale" not in STATUS_VALUES
+    assert "complete" not in STATUS_VALUES
+
+
+def test_entry_unknown_kind_preserved_as_is():
+    """FR8: unknown kinds MUST be preserved as-is, not coerced to 'internal'."""
     content = """\
 <!-- @scry.entry
 id: misc.thing~a1b2c3d4
 kind: unknownkind
 summary: test
+status: active
 @scry.entry.end -->
 """
     r = parse_markers(content)
     assert len(r.docs) == 1
-    assert r.docs[0].kind == "internal"
+    assert r.docs[0].kind == "unknownkind"
+
+
+def test_entry_custom_status_preserved_as_is():
+    """FR9: custom status values MUST be preserved as-is."""
+    content = """\
+<!-- @scry.entry
+id: task.thing~a1b2c3d4
+kind: task
+summary: test
+status: completed
+@scry.entry.end -->
+"""
+    r = parse_markers(content)
+    assert len(r.docs) == 1
+    assert r.docs[0].status == "completed"
 
 
 def test_entry_lesson_kind_accepted():
@@ -146,6 +239,7 @@ def test_entry_lesson_kind_accepted():
 id: lesson.thing~a1b2c3d4
 kind: lesson
 summary: learned something
+status: active
 @scry.entry.end -->
 """
     r = parse_markers(content)
@@ -166,10 +260,17 @@ def test_strip_comment_prefix_python():
     assert cleaned.startswith("id: foo")
 
 
-def test_strip_markers_from_content_removes_block_and_line():
-    src = ENTRY_HTML + LINE_MARKERS
+def test_strip_markers_from_content_removes_block_and_bind():
+    src = ENTRY_HTML + BIND_SINGLE_LINE
     out = strip_markers_from_content(src)
     assert "@scry." not in out
+
+
+def test_strip_markers_from_content_removes_bind_block():
+    src = BIND_BLOCK + "some code\n"
+    out = strip_markers_from_content(src)
+    assert "@scry." not in out
+    assert "some code" in out
 
 
 def test_content_hash_stable_and_truncated():

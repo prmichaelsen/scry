@@ -1,4 +1,4 @@
-r"""Validate that every active spec FR has at least one @scry.impl marker.
+r"""Validate that every active spec FR has at least one @scry.bind marker.
 
 Output shape:
   {
@@ -9,7 +9,7 @@ Output shape:
 
 Heuristic: walks `scry__doc` rows where kind='spec' and status='active'.
 For each, scans the spec's `current_path` content for FR identifiers
-(`FR\d+`) and confirms a matching `scry__impl.ref` exists.
+(`FR\d+`) and confirms a matching `scry__bind.ref` exists.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import re
 import sqlite3
 from pathlib import Path
 
-DESCRIPTION = "Check impl coverage for all active specs"
+DESCRIPTION = "Check bind coverage for all active specs"
 
 _FR_RE = re.compile(r"\bFR\d+\b")
 
@@ -41,7 +41,7 @@ def run(db: sqlite3.Connection, params: dict) -> dict:
         for fr in sorted(set(_FR_RE.findall(text))):
             ref = f"{spec_id}#{fr}"
             row = db.execute(
-                "SELECT 1 FROM scry__impl WHERE ref = ? LIMIT 1", (ref,)
+                "SELECT 1 FROM scry__bind WHERE ref = ? LIMIT 1", (ref,)
             ).fetchone()
             if row is None:
                 missing.append(ref)

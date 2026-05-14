@@ -6,20 +6,17 @@ import secrets
 import sqlite3
 from typing import Any
 
-VALID_KINDS = ("entry", "anchor", "impl", "test")
+VALID_KINDS = ("entry", "anchor", "bind")
 
 _TABLE = {
     "entry": "scry__doc",
     "anchor": "scry__anchor",
-    "impl": "scry__impl",
-    "test": "scry__test",
+    # bind: local_id is file-scoped; no global collision check needed
 }
 
 _PRIMARY_KEY_COL = {
     "entry": "id",
     "anchor": "name",
-    "impl": "id",
-    "test": "id",
 }
 
 _PREFIX_RE = re.compile(r"^[A-Za-z0-9._-]+$")
@@ -31,12 +28,15 @@ def _validate_prefix(kind: str, prefix: str) -> str | None:
     has_dot = "." in prefix
     if kind == "entry" and not has_dot:
         return f"{kind} prefix must contain a dot (got {prefix!r})"
-    if kind in ("anchor", "impl", "test") and has_dot:
+    if kind in ("anchor", "bind") and has_dot:
         return f"{kind} prefix must not contain dots (got {prefix!r})"
     return None
 
 
 def _exists(conn: sqlite3.Connection, kind: str, ident: str) -> bool:
+    if kind == "bind":
+        # local_id is file-scoped (FR2) — no global uniqueness check.
+        return False
     table = _TABLE[kind]
     col = _PRIMARY_KEY_COL[kind]
     row = conn.execute(f"SELECT 1 FROM {table} WHERE {col} = ? LIMIT 1", (ident,)).fetchone()
@@ -59,7 +59,7 @@ def _marker_schema(kind: str, ident: str) -> dict[str, Any]:
                     "task, milestone, report, audit, research, code"
                 ),
                 "summary": "1-2 sentence description (use `>` for folded scalar)",
-                "status": "one of: draft, active, approved, stale, complete",
+                "status": "one of: draft, active, deprecated (custom values allowed)",
                 "weight": "0.0-1.0 importance score",
                 "tags": "YAML list, e.g. [\"scope:auth\", \"topic:security\"]",
                 "rationale": "why this doc matters (folded scalar OK)",
@@ -73,25 +73,28 @@ def _marker_schema(kind: str, ident: str) -> dict[str, Any]:
             "marker_open": f"<!-- @scry.anchor {ident}",
             "marker_close": "@scry.anchor.end -->",
             "fields": {
-                "description": "what this code location represents",
-                "seeded_questions": "YAML list",
+                "description": "what this code location represents (required, non-empty)",
+                "seeded_questions": "YAML list (required, empty allowed)",
             },
         }
-    if kind == "impl":
+    if kind == "bind":
         return {
-            "marker_line": f"# @scry.impl {ident} <ref>",
+            "marker_line": f"# @scry.bind {ident} <ref> [comment]",
+            "marker_block_open": f"# @scry.bind {ident} <ref>",
+            "marker_block_close": "# @scry.bind.end",
             "fields": {
-                "id": ident,
-                "ref": "spec or design reference, e.g. spec.auth~xyz#FR3",
+                "local-id": ident,
+                "ref": (
+                    "binding target — artifact-ref ({id} or {id}#{loose-anchor}) "
+                    "or anchor-id ({name}~{hash}). "
+                    "E.g. spec.auth~xyz#FR3, design.arch~abcd1234#DR2, token-val~feedcafe"
+                ),
+                "comment": "(optional) free-form context about this binding",
             },
-        }
-    if kind == "test":
-        return {
-            "marker_line": f"# @scry.test {ident} <ref>",
-            "fields": {
-                "id": ident,
-                "ref": "spec or design reference, e.g. spec.auth~xyz#UT1",
-            },
+            "note": (
+                "local_id is file-scoped; the same id can appear in different files. "
+                "Single-line form for short comments; block form for multi-line commentary."
+            ),
         }
     return {}
 

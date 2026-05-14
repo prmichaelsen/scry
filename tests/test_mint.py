@@ -24,8 +24,8 @@ def test_mint_entry_no_collision(conn):
     assert out["id"] != "design.auth~a1b2c3d4"
 
 
-def test_mint_rejects_dotted_impl_prefix(conn):
-    out = mint(conn, "impl", "spec.auth")
+def test_mint_rejects_dotted_bind_prefix(conn):
+    out = mint(conn, "bind", "spec.auth")
     assert "error" in out
     assert "must not contain dots" in out["error"]
 
@@ -39,6 +39,25 @@ def test_mint_rejects_undotted_entry_prefix(conn):
 def test_mint_anchor_format(conn):
     out = mint(conn, "anchor", "auth-check")
     assert re.match(r"^auth-check~[0-9a-f]{8}$", out["id"])
+
+
+def test_mint_bind_format(conn):
+    """bind minting returns a valid {name}~{hash} local-id."""
+    out = mint(conn, "bind", "validate-jwt")
+    assert "id" in out
+    assert re.match(r"^validate-jwt~[0-9a-f]{8}$", out["id"])
+    assert "schema" in out
+    assert "marker_line" in out["schema"]
+    assert "@scry.bind" in out["schema"]["marker_line"]
+
+
+def test_mint_bind_schema_includes_block_form(conn):
+    """Bind schema includes block-form markers."""
+    out = mint(conn, "bind", "impl-x")
+    schema = out["schema"]
+    assert "marker_block_open" in schema
+    assert "marker_block_close" in schema
+    assert "@scry.bind.end" in schema["marker_block_close"]
 
 
 def test_mint_unknown_kind(conn):
@@ -58,9 +77,31 @@ def test_mint_legacy_file_kind_rejected(conn):
     assert "error" in out
 
 
+def test_mint_legacy_impl_kind_rejected(conn):
+    """scry-spec v1.0: 'impl' is no longer a valid mint kind (replaced by 'bind')."""
+    out = mint(conn, "impl", "validate-jwt")
+    assert "error" in out
+
+
+def test_mint_legacy_test_kind_rejected(conn):
+    """scry-spec v1.0: 'test' is no longer a valid mint kind (replaced by 'bind')."""
+    out = mint(conn, "test", "jwt-expiry")
+    assert "error" in out
+
+
 def test_valid_kinds_are_v1_only(conn):
     """VALID_KINDS must only contain scry-spec v1.0 kinds."""
     assert "doc" not in VALID_KINDS
     assert "file" not in VALID_KINDS
+    assert "impl" not in VALID_KINDS
+    assert "test" not in VALID_KINDS
     assert "entry" in VALID_KINDS
     assert "anchor" in VALID_KINDS
+    assert "bind" in VALID_KINDS
+
+
+def test_mint_entry_status_hint_mentions_deprecated(conn):
+    """Entry schema should mention 'deprecated' as a baseline status (v1.0)."""
+    out = mint(conn, "entry", "design.x")
+    status_hint = out["schema"]["fields"]["status"]
+    assert "deprecated" in status_hint
