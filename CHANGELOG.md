@@ -4,6 +4,43 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-05-14
+
+### Changed
+
+- **Parser delegated to `scry-parse`** — the inline parsing engine in
+  `src/scry/domain/markers.py` is replaced by a thin adapter over the
+  `scry-parse>=1.0.0` library. This makes `scry-parse` the single source of
+  truth for scry-spec v1.0 parsing semantics; spec updates now flow through
+  one library rather than two parallel implementations.
+
+- **`requires-python` bumped to `>=3.11`** — required by `scry-parse`.
+
+- **`STATUS_VALUES` now sourced from `scry_parse.BASELINE_STATUSES`** —
+  guarantees consistency between scry-mcp's mint hints and the spec library.
+
+- **Mixed inline+block bind behavior** (FR2 mutual exclusion): the inline
+  parser silently skipped these markers; scry-parse accepts-and-discards
+  (uses the inline comment, ignores the block body). Both behaviors are
+  spec-conformant — the spec's MUST NOT is against producing *two* records,
+  not against producing one.
+
+### Added
+
+- `scry-parse>=1.0.0` runtime dependency.
+
+### Removed
+
+- Inline parsing engine (~250 lines of custom regex/YAML parse loop). Parsing
+  logic now lives in `scry-parse`. The `strip_markers_from_content` function
+  (used by `scry_scrub`) remains local — `scry-parse` has no strip API.
+
+### Internal
+
+- 83/83 tests pass against the new adapter.
+
+---
+
 ## [0.7.0] - 2026-05-14
 
 ### BREAKING CHANGES

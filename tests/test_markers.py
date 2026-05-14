@@ -154,15 +154,23 @@ def test_parse_bind_block_form():
 
 
 def test_parse_bind_block_form_mutual_exclusion():
-    """FR2: block form with inline comment is invalid — skipped silently."""
+    """FR2: block form with inline comment — spec says MAY accept-and-discard or reject.
+
+    scry-parse chooses accept-and-discard: treats it as block form, uses the
+    inline comment from the open line, ignores the block body.  Both behaviors
+    are spec-conformant (the MUST NOT is against producing TWO records, not one).
+    """
     content = (
         "# @scry.bind validate-jwt~a1b2c3d4 spec.auth~xyz#FR3 inline comment here\n"
         "# body line\n"
         "# @scry.bind.end\n"
     )
     r = parse_markers(content)
-    # Malformed (mixed inline+block) — silently skipped per spec
-    assert len(r.binds) == 0
+    # scry-parse (accept-and-discard): one binding, comment from open line
+    assert len(r.binds) == 1
+    assert r.binds[0].local_id == "validate-jwt~a1b2c3d4"
+    assert r.binds[0].ref == "spec.auth~xyz#FR3"
+    assert r.binds[0].comment == "inline comment here"
 
 
 def test_positional_exclusion_skips_bind_inside_entry():
