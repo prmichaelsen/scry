@@ -4,6 +4,41 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-05-14
+
+### Added
+
+- **`implements` and `supersedes` fields now indexed** — `@scry.entry` markers
+  with `implements` or `supersedes` fields are persisted to `scry__doc` and
+  queryable via `scry_sql`. Previously these optional spec fields (FR4) were
+  parsed but silently dropped.
+
+- **`depends_on` relationships auto-populated into `doc_relationship`** —
+  `@scry.entry` markers with a `depends_on` list now drive `doc_relationship`
+  inserts automatically on surface/watch. Cycle detection (FR12) runs at index
+  time; cycles are recorded as `depends_on_cycle` warnings in `scry__warning`
+  rather than halting the index. The `doc_relationship` table is now the
+  authoritative source for dependency edges and is kept in sync on every
+  file change.
+
+- **`scry_sql` docstring** — the `scry__doc` column list now enumerates
+  `implements`, `supersedes`, and `doc_relationship` notes so agents know
+  these fields are queryable.
+
+### Changed
+
+- **`_sync_relationships`** (new internal helper in `surface.py`) — clears all
+  `depends_on` rows for a doc before re-inserting from the current marker body,
+  ensuring stale edges are removed when a marker is edited.
+
+### Internal
+
+- 97/97 tests pass (6 new tests covering implements/supersedes persistence,
+  depends_on edge insertion, cycle detection at index time, and
+  depends_on_cycle warning generation).
+
+---
+
 ## [0.9.0] - 2026-05-14
 
 ### Added

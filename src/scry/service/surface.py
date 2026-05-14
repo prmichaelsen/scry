@@ -112,8 +112,15 @@ def _under_agent(rel_path: str) -> bool:
 
 
 def _record_warnings(conn: sqlite3.Connection, parsed, rel_path: str) -> int:
-    """Replace any prior warnings for `rel_path` with the current state."""
-    conn.execute("DELETE FROM scry__warning WHERE file_path = ?", (rel_path,))
+    """Replace prior misplaced_doc warnings for `rel_path` and emit fresh ones.
+
+    Only clears 'misplaced_doc' kind — other warning kinds (e.g. depends_on_cycle)
+    are written by upsert_doc and must not be clobbered here.
+    """
+    conn.execute(
+        "DELETE FROM scry__warning WHERE file_path = ? AND kind = 'misplaced_doc'",
+        (rel_path,),
+    )
     in_agent = _under_agent(rel_path)
     n = 0
     if not in_agent:
@@ -129,6 +136,43 @@ def _record_warnings(conn: sqlite3.Connection, parsed, rel_path: str) -> int:
     return n
 
 
+def _sync_relationships(conn: sqlite3.Connection, marker: DocMarker) -> list[str]:
+    """Sync doc_relationship rows for marker.depends_on. Returns warning messages for cycles."""
+    # Clear stale relationship rows for this doc.
+    conn.execute(
+        "DELETE FROM doc_relationship WHERE from_id = ? AND relationship = 'depends_on'",
+        (marker.id,),
+    )
+    warnings: list[str] = []
+    for dep_id in marker.depends_on:
+        if dep_id == marker.id:
+            warnings.append(f"self-loop in depends_on ignored: {marker.id}")
+            continue
+        # Cycle check: would inserting (marker.id -> dep_id) form a cycle?
+        cycle = conn.execute(
+            """
+            WITH RECURSIVE reachable(node) AS (
+              SELECT to_id FROM doc_relationship WHERE from_id = ?
+              UNION
+              SELECT dr.to_id FROM doc_relationship dr
+              JOIN reachable r ON dr.from_id = r.node
+            )
+            SELECT 1 FROM reachable WHERE node = ? LIMIT 1
+            """,
+            (dep_id, marker.id),
+        ).fetchone()
+        if cycle is not None:
+            warnings.append(
+                f"cycle in depends_on ignored: {marker.id} -> {dep_id} would form a cycle"
+            )
+            continue
+        conn.execute(
+            "INSERT OR IGNORE INTO doc_relationship(from_id, to_id, relationship) VALUES (?, ?, 'depends_on')",
+            (marker.id, dep_id),
+        )
+    return warnings
+
+
 def upsert_doc(conn: sqlite3.Connection, marker: DocMarker, rel_path: str) -> None:
     h = content_hash(marker.raw_body)
     row = conn.execute(
@@ -141,13 +185,14 @@ def upsert_doc(conn: sqlite3.Connection, marker: DocMarker, rel_path: str) -> No
         conn.execute(
             """
             INSERT INTO scry__doc(id, current_path, summary, kind, weight, status, tags,
-                                  rationale, applies, seeded_questions, ephemeral, missing_since,
-                                  content_hash, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+                                  rationale, applies, seeded_questions, implements, supersedes,
+                                  ephemeral, missing_since, content_hash, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
             """,
             (
                 marker.id, rel_path, marker.summary, marker.kind, marker.weight, marker.status,
                 marker.tags, marker.rationale, marker.applies, marker.seeded_questions,
+                marker.implements, marker.supersedes,
                 ephemeral, h, _now(), _now(),
             ),
         )
@@ -156,6 +201,7 @@ def upsert_doc(conn: sqlite3.Connection, marker: DocMarker, rel_path: str) -> No
             """
             UPDATE scry__doc SET current_path = ?, summary = ?, kind = ?, weight = ?, status = ?,
                                  tags = ?, rationale = ?, applies = ?, seeded_questions = ?,
+                                 implements = ?, supersedes = ?,
                                  ephemeral = ?, missing_since = NULL, content_hash = ?,
                                  updated_at = ?
             WHERE id = ?
@@ -163,8 +209,19 @@ def upsert_doc(conn: sqlite3.Connection, marker: DocMarker, rel_path: str) -> No
             (
                 rel_path, marker.summary, marker.kind, marker.weight, marker.status,
                 marker.tags, marker.rationale, marker.applies, marker.seeded_questions,
+                marker.implements, marker.supersedes,
                 ephemeral, h, _now(), marker.id,
             ),
+        )
+    # Sync depends_on into doc_relationship; record cycle warnings.
+    cycle_warnings = _sync_relationships(conn, marker)
+    for msg in cycle_warnings:
+        conn.execute(
+            """
+            INSERT INTO scry__warning(kind, marker_kind, marker_id, file_path, message)
+            VALUES ('depends_on_cycle', 'doc', ?, ?, ?)
+            """,
+            (marker.id, rel_path, msg),
         )
 
 
@@ -282,8 +339,15 @@ def reindex_file(conn: sqlite3.Connection, abs_path: Path, project_root: Path) -
 
 
 def handle_file_deletion(conn: sqlite3.Connection, rel_path: str) -> None:
-    """Soft-delete docs; hard-delete anchors/binds for a removed file."""
+    """Soft-delete docs; hard-delete anchors/binds/relationships for a removed file."""
     now = _now()
+    # Collect doc IDs for this path before soft-deleting (for relationship cleanup).
+    doc_ids = [
+        r["id"] for r in conn.execute(
+            "SELECT id FROM scry__doc WHERE current_path = ? AND missing_since IS NULL",
+            (rel_path,),
+        ).fetchall()
+    ]
     conn.execute(
         "UPDATE scry__doc SET missing_since = ? WHERE current_path = ? AND missing_since IS NULL",
         (now, rel_path),
@@ -291,6 +355,11 @@ def handle_file_deletion(conn: sqlite3.Connection, rel_path: str) -> None:
     conn.execute("DELETE FROM scry__anchor WHERE current_path = ?", (rel_path,))
     conn.execute("DELETE FROM scry__bind WHERE file_path = ?", (rel_path,))
     conn.execute("DELETE FROM scry__warning WHERE file_path = ?", (rel_path,))
+    for doc_id in doc_ids:
+        conn.execute(
+            "DELETE FROM doc_relationship WHERE from_id = ? AND relationship = 'depends_on'",
+            (doc_id,),
+        )
     conn.commit()
 
 

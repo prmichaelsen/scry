@@ -63,6 +63,10 @@ class DocMarker:
     rationale: str | None = None
     applies: str | None = None
     seeded_questions: str | None = None
+    # Truly-optional spec fields (scry-spec v1.0 FR_OPT1–FR_OPT3)
+    depends_on: list[str] = field(default_factory=list)
+    implements: str | None = None
+    supersedes: str | None = None
     raw_body: str = ""
     span: tuple[int, int] = (0, 0)
 
@@ -153,6 +157,9 @@ def parse_markers(content: str, file: str = "") -> ParseResult:
             rationale=_coerce_text(e.rationale),
             applies=_coerce_text(e.applies),
             seeded_questions=_coerce_text(e.seeded_questions),
+            depends_on=list(e.depends_on) if e.depends_on else [],
+            implements=_coerce_text(e.implements) if e.implements else None,
+            supersedes=_coerce_text(e.supersedes) if e.supersedes else None,
             raw_body=raw,
             span=e.span,
         ))
