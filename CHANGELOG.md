@@ -4,26 +4,26 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.5.0] - 2026-05-14
-
-### Changed
-
-- **Breaking default change**: `scry scrub` (CLI) and `scry_scrub` (MCP) now skip
-  `agent/**` and any `AGENT.md` file by default. These are local-only workspace
-  files that live outside git-tracked scope and do not need marker stripping before
-  a commit. The `agent/` directory is also no longer removed from the clean branch
-  unless explicitly requested.
-- Add `--include-agent` flag to `scry scrub` (CLI) and `include_agent: bool = False`
-  parameter to `scry_scrub` (MCP) to restore prior behavior (scrub everything,
-  remove `agent/`).
-- `scry scrub` is now exposed as a proper CLI subcommand (previously MCP-only).
-- When agent files are skipped, the result includes `skipped_agent_files` and a
-  `hint` field pointing callers to the opt-in flag.
+## [0.5.1] - 2026-05-14
 
 ### Added
 
-- 13 new tests covering `_is_agent_path`, default-skip behavior, `--include-agent`
-  behavior, and error cases (protected branch, dirty tree).
+- `scry scrub` CLI subcommand exposing the scrub operation directly from the
+  shell. Accepts `--include-agent` to opt in to full scrubbing (prior behavior).
+- `scry_scrub` MCP tool now accepts `include_agent: bool = false` parameter.
+  Update the tool description to document the new default-exclusion behavior.
+
+### Changed
+
+- **Default scrub scope narrowed**: `scry scrub` and `scry_scrub` now skip
+  `agent/**` and any `AGENT.md` file by default. Only tracked files outside
+  the agent workspace are scrubbed. This matches the common workflow where
+  `agent/` is excluded from git via `.git/info/exclude` — those files don't
+  need clean markers for PR submission, and scrubbing them was noise.
+- Pass `--include-agent` (CLI) or `include_agent=true` (MCP) to restore the
+  prior behavior: scrub everything and remove the `agent/` directory.
+- Result dict now includes `skipped_agent` (list of paths not scrubbed) and
+  `skipped_agent_hint` when agent files were excluded.
 
 ## [0.3.0] - 2026-05-06
 
