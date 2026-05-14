@@ -29,7 +29,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `_SUMMARY_COL` mapping added to support per-table summary column lookup.
 - 10 new tests covering tier-1 exact-prefix collisions, tier-2 family
   neighbors, tier-1/tier-2 disjointness, bind exemption, and anchor kind.
-- 83/83 tests pass.
+- 91/91 tests pass.
 
 ---
 
