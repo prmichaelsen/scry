@@ -297,3 +297,43 @@ depends_on:
     ).fetchall()
     assert len(warnings) == 1
     assert "self-loop" in warnings[0]["message"]
+
+
+def test_cycle_warning_cleared_when_cycle_fixed(conn, project_tree):
+    """Fixing a depends_on cycle removes the stale warning on re-index."""
+    doc_self = """\
+<!-- @scry.entry
+id: design.self~44444444
+kind: design
+summary: self-loop
+status: active
+weight: 0.5
+depends_on:
+  - design.self~44444444
+@scry.entry.end -->
+"""
+    fixed_doc = """\
+<!-- @scry.entry
+id: design.self~44444444
+kind: design
+summary: self-loop fixed
+status: active
+weight: 0.5
+@scry.entry.end -->
+"""
+    path = project_tree / "agent" / "design" / "cyclic.md"
+    _write(path, doc_self)
+    surface(conn, project_root=project_tree)
+    # Warning should be present after first index.
+    before = conn.execute(
+        "SELECT id FROM scry__warning WHERE kind = 'depends_on_cycle' AND marker_id = 'design.self~44444444'"
+    ).fetchall()
+    assert len(before) == 1
+
+    # Fix the cycle and re-index.
+    _write(path, fixed_doc)
+    surface(conn, project_root=project_tree)
+    after = conn.execute(
+        "SELECT id FROM scry__warning WHERE kind = 'depends_on_cycle' AND marker_id = 'design.self~44444444'"
+    ).fetchall()
+    assert len(after) == 0, "stale cycle warning should be cleared after fix"

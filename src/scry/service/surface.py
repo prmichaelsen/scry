@@ -214,6 +214,11 @@ def upsert_doc(conn: sqlite3.Connection, marker: DocMarker, rel_path: str) -> No
             ),
         )
     # Sync depends_on into doc_relationship; record cycle warnings.
+    # Clear stale cycle warnings for this marker before re-inserting.
+    conn.execute(
+        "DELETE FROM scry__warning WHERE kind = 'depends_on_cycle' AND marker_id = ?",
+        (marker.id,),
+    )
     cycle_warnings = _sync_relationships(conn, marker)
     for msg in cycle_warnings:
         conn.execute(

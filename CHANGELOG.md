@@ -4,6 +4,24 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-05-14
+
+### Fixed
+
+- **Stale `depends_on_cycle` warnings now cleared on re-index** — when a
+  marker previously recorded a cycle warning and the cycle is subsequently
+  fixed, the old warning was not removed on re-index. `upsert_doc` now
+  deletes existing `depends_on_cycle` warnings for the marker before
+  re-evaluating relationships, so the warning table stays accurate after
+  edits.
+
+### Internal
+
+- 1 new regression test (`test_cycle_warning_cleared_when_cycle_fixed`).
+- 98/98 tests pass.
+
+---
+
 ## [0.10.0] - 2026-05-14
 
 ### Added
