@@ -4,6 +4,18 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.3] - 2026-05-14
+
+### Fixed
+
+- **Tightened `scry-parse` minimum constraint from `>=1.0.0` to `>=1.0.1`** — block-comment
+  support (JSDoc `/** */`, C `/* */`, OCaml `(* *)`, Haskell `{- -}`, PowerShell `<# #>`) was
+  added in scry-parse v1.0.1. Declaring `>=1.0.0` allowed users with a cached 1.0.0 to install
+  it alongside scry-mcp 0.10.2, breaking marker parsing in any language using block-comment
+  comment syntax. The 0.10.2 release depended on this feature but did not constrain for it.
+
+---
+
 ## [0.10.2] - 2026-05-14
 
 ### Added
