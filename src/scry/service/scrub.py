@@ -16,7 +16,20 @@ def _run(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-def scrub(project_root: Path | None = None) -> dict[str, Any]:
+def _is_agent_path(rel: str) -> bool:
+    """Return True if a relative path is inside agent/ or is an AGENT.md file."""
+    p = Path(rel)
+    # Match agent/** (any depth under agent/)
+    parts = p.parts
+    if parts and parts[0] == "agent":
+        return True
+    # Match AGENT.md by basename at any depth
+    if p.name == "AGENT.md":
+        return True
+    return False
+
+
+def scrub(project_root: Path | None = None, include_agent: bool = False) -> dict[str, Any]:
     root = project_root or get_project_root()
 
     branch_proc = _run(["git", "rev-parse", "--abbrev-ref", "HEAD"], root)
@@ -42,6 +55,17 @@ def scrub(project_root: Path | None = None) -> dict[str, Any]:
     if grep.returncode == 0:
         files = [line for line in grep.stdout.splitlines() if line.strip()]
 
+    # Apply agent exclusion unless include_agent is set
+    skipped_agent: list[str] = []
+    if not include_agent:
+        filtered: list[str] = []
+        for rel in files:
+            if _is_agent_path(rel):
+                skipped_agent.append(rel)
+            else:
+                filtered.append(rel)
+        files = filtered
+
     stripped_files: list[str] = []
     for rel in files:
         path = root / rel
@@ -54,19 +78,24 @@ def scrub(project_root: Path | None = None) -> dict[str, Any]:
             path.write_text(cleaned, encoding="utf-8")
             stripped_files.append(rel)
 
-    agent_dir = root / "agent"
     removed_agent = False
-    if agent_dir.is_dir():
-        rm = _run(["git", "rm", "-rf", "agent"], root)
-        if rm.returncode == 0:
-            removed_agent = True
-        else:
-            shutil.rmtree(agent_dir, ignore_errors=True)
-            removed_agent = not agent_dir.exists()
+    if include_agent:
+        agent_dir = root / "agent"
+        if agent_dir.is_dir():
+            rm = _run(["git", "rm", "-rf", "agent"], root)
+            if rm.returncode == 0:
+                removed_agent = True
+            else:
+                shutil.rmtree(agent_dir, ignore_errors=True)
+                removed_agent = not agent_dir.exists()
 
-    return {
+    result: dict[str, Any] = {
         "branch": clean_branch,
         "stripped_files": stripped_files,
         "agent_removed": removed_agent,
         "note": "changes left unstaged; review and commit manually",
     }
+    if skipped_agent:
+        result["skipped_agent"] = skipped_agent
+        result["skipped_agent_hint"] = "pass include_agent=true (MCP) or --include-agent (CLI) to scrub these too"
+    return result

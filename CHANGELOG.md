@@ -4,6 +4,27 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-05-14
+
+### Changed
+
+- **Breaking default change**: `scry scrub` (CLI) and `scry_scrub` (MCP) now skip
+  `agent/**` and any `AGENT.md` file by default. These are local-only workspace
+  files that live outside git-tracked scope and do not need marker stripping before
+  a commit. The `agent/` directory is also no longer removed from the clean branch
+  unless explicitly requested.
+- Add `--include-agent` flag to `scry scrub` (CLI) and `include_agent: bool = False`
+  parameter to `scry_scrub` (MCP) to restore prior behavior (scrub everything,
+  remove `agent/`).
+- `scry scrub` is now exposed as a proper CLI subcommand (previously MCP-only).
+- When agent files are skipped, the result includes `skipped_agent_files` and a
+  `hint` field pointing callers to the opt-in flag.
+
+### Added
+
+- 13 new tests covering `_is_agent_path`, default-skip behavior, `--include-agent`
+  behavior, and error cases (protected branch, dirty tree).
+
 ## [0.3.0] - 2026-05-06
 
 ### Added

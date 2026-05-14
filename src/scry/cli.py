@@ -102,6 +102,14 @@ def _cmd_surface(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_scrub(args: argparse.Namespace) -> int:
+    import json
+    from scry.service.scrub import scrub
+    result = scrub(include_agent=args.include_agent)
+    print(json.dumps(result, indent=2))
+    return 0 if "error" not in result else 1
+
+
 def _cmd_version() -> int:
     print(__version__)
     return 0
@@ -122,6 +130,20 @@ def main(argv: list[str] | None = None) -> int:
     p_surface = sub.add_parser("surface", help="One-shot batch reindex of the project tree.")
     p_surface.add_argument("--force", action="store_true", help="Hard-delete records whose source file is gone.")
 
+    p_scrub = sub.add_parser(
+        "scrub",
+        help="Strip @scry.* markers from tracked files and produce a clean git branch.",
+    )
+    p_scrub.add_argument(
+        "--include-agent",
+        action="store_true",
+        default=False,
+        help=(
+            "Also scrub agent/** and AGENT.md files and remove the agent/ directory. "
+            "By default these are skipped (they are local-only workspace files)."
+        ),
+    )
+
     sub.add_parser("serve", help="Run the MCP server (default if no subcommand given).")
     sub.add_parser("version", help="Print the package version.")
 
@@ -132,6 +154,8 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_init(args)
     if args.command == "surface":
         return _cmd_surface(args)
+    if args.command == "scrub":
+        return _cmd_scrub(args)
     if args.command == "version":
         return _cmd_version()
     parser.print_help()
