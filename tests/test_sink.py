@@ -64,16 +64,32 @@ def _populate(conn: sqlite3.Connection) -> None:
         "INSERT INTO scry__doc(id, kind, status, current_path) VALUES ('task.sink-test~aabbccdd','task','active','agent/tasks/sink.md')"
     )
     conn.execute(
-        "INSERT INTO scry__anchor(name, current_path) VALUES ('test-anchor','agent/tasks/sink.md')"
+        "INSERT INTO scry__doc_tag(doc_id, tag) VALUES ('task.sink-test~aabbccdd','topic:test')"
     )
     conn.execute(
-        "INSERT INTO scry__bind(local_id, ref, file_path) VALUES ('impl~11223344','spec.x~yz#FR1','agent/tasks/sink.md')"
+        "INSERT INTO scry__doc_seeded_question(doc_id, ordinal, question) VALUES ('task.sink-test~aabbccdd',0,'What does this test?')"
     )
     conn.execute(
-        "INSERT INTO doc_relationship(from_id, to_id, relationship) VALUES ('task.sink-test~aabbccdd','task.other~eeeeeeee','depends_on')"
+        "INSERT INTO scry__rel(from_id, to_id, predicate, fragment) "
+        "VALUES ('task.sink-test~aabbccdd','task.other~eeeeeeee','depends_on','')"
     )
     conn.execute(
-        "INSERT INTO scry__warning(kind, marker_kind, marker_id, file_path, message) VALUES ('misplaced_doc','doc','task.sink-test~aabbccdd','agent/tasks/sink.md','test warning')"
+        "INSERT INTO scry__bind(source_doc_id, source_local_id, target_id, target_fragment) "
+        "VALUES ('task.sink-test~aabbccdd', 'impl~11223344', 'spec.x~yz', '#FR1')"
+    )
+    conn.execute(
+        "INSERT INTO scry__anchor(id, doc_id) VALUES ('test-anchor~11223344','task.sink-test~aabbccdd')"
+    )
+    conn.execute(
+        "INSERT INTO scry__anchor_seeded_question(anchor_id, ordinal, question) VALUES ('test-anchor~11223344',0,'Where is this?')"
+    )
+    conn.execute(
+        "INSERT INTO scry__warning(kind, marker_kind, marker_id, file_path, message) "
+        "VALUES ('misplaced_doc','doc','task.sink-test~aabbccdd','agent/tasks/sink.md','test warning')"
+    )
+    conn.execute(
+        "INSERT INTO scry__file(path, doc_id, body) "
+        "VALUES ('agent/tasks/sink.md','task.sink-test~aabbccdd','body content')"
     )
     conn.commit()
 
@@ -90,8 +106,8 @@ def test_sink_truncates_all_tables(conn):
     _populate(conn)
     # Verify populated
     for table in SINK_TABLES:
-        assert conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] >= 1, \
-            f"expected at least 1 row in {table} before sink"
+        count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        assert count >= 1, f"expected at least 1 row in {table} before sink"
 
     result = sink(conn)
 
@@ -104,19 +120,19 @@ def test_sink_truncates_all_tables(conn):
     assert result["cleared"]["scry__doc"] >= 1
     assert result["cleared"]["scry__anchor"] >= 1
     assert result["cleared"]["scry__bind"] >= 1
-    assert result["cleared"]["doc_relationship"] >= 1
+    assert result["cleared"]["scry__rel"] >= 1
     assert result["cleared"]["scry__warning"] >= 1
 
 
 # ---------------------------------------------------------------------------
-# Test 2: sink preserves schema (tables + FTS + migration table intact)
+# Test 2: sink preserves schema
 # ---------------------------------------------------------------------------
 
 def test_sink_preserves_schema(conn):
     _populate(conn)
     sink(conn)
 
-    # All sink tables still exist (DDL intact)
+    # All sink tables still exist
     for table in SINK_TABLES:
         row = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)
@@ -124,37 +140,28 @@ def test_sink_preserves_schema(conn):
         assert row is not None, f"table {table} should still exist after sink"
 
     # FTS virtual tables still exist
-    for fts_table in ("scry__doc_fts", "scry__anchor_fts", "scry__bind_fts"):
+    for fts_table in ("scry__doc_fts", "scry__anchor_fts", "scry__bind_fts",
+                       "scry__doc_tag_fts", "scry__doc_seeded_question_fts",
+                       "scry__file_fts"):
         row = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (fts_table,)
         ).fetchone()
         assert row is not None, f"FTS table {fts_table} should still exist after sink"
 
-    # Migration table untouched
-    row = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='migration'"
-    ).fetchone()
-    assert row is not None, "migration table must not be dropped by sink"
-
-    migration_rows = conn.execute("SELECT COUNT(*) FROM migration").fetchone()[0]
-    assert migration_rows > 0, "migration table must retain its rows after sink"
-
 
 # ---------------------------------------------------------------------------
-# Test 3: sink is atomic — failure mid-run leaves DB unchanged
+# Test 3: sink is atomic
 # ---------------------------------------------------------------------------
 
 def test_sink_atomic(conn):
     _populate(conn)
     counts_before = _all_counts(conn)
 
-    # Wrap conn so we can fail mid-sink without monkey-patching read-only attributes
     failing = _WrappedConn(conn, fail_on_delete_n=3)
 
     with pytest.raises(sqlite3.OperationalError, match="simulated mid-sink failure"):
         sink(failing)
 
-    # Counts should be unchanged — rollback happened
     counts_after = _all_counts(conn)
     for table in SINK_TABLES:
         assert counts_after[table] == counts_before[table], \
@@ -167,23 +174,18 @@ def test_sink_atomic(conn):
 
 def test_sink_then_surface(conn, project_tree):
     """sink(conn, then_surface=True) clears the DB then re-indexes from disk markers."""
-    # Write a marker file on disk
     f = project_tree / "agent" / "tasks" / "sink-test.md"
     f.parent.mkdir(parents=True, exist_ok=True)
     f.write_text(DOC_BLOCK, encoding="utf-8")
 
-    # Surface to populate DB from disk
     surface(conn, project_root=project_tree)
     assert conn.execute("SELECT COUNT(*) FROM scry__doc").fetchone()[0] >= 1
 
-    # Single call: sink + resurface
     result = sink(conn, then_surface=True, project_root=project_tree)
 
-    # Result must include surface sub-results
     assert "surface" in result, "then_surface=True should include surface results"
     assert result["surface"]["markers_indexed"] >= 1
 
-    # DB should be re-populated from disk
     row = conn.execute(
         "SELECT id FROM scry__doc WHERE id = 'task.sink-test~aabbccdd'"
     ).fetchone()
@@ -205,11 +207,9 @@ async def test_sink_requires_elicitation(conn):
     _populate(conn)
     counts_before = _all_counts(conn)
 
-    # Mock the Context so elicit() returns DeclinedElicitation
     mock_ctx = MagicMock()
     mock_ctx.elicit = AsyncMock(return_value=DeclinedElicitation())
 
-    # Wrap conn so close() is a no-op (we need the connection after the tool runs)
     wrapped = _WrappedConn(conn)
 
     with patch("scry.tools.scry_sink.get_db", return_value=wrapped):
@@ -218,7 +218,6 @@ async def test_sink_requires_elicitation(conn):
     result = json.loads(result_str)
     assert result["status"] == "cancelled", f"expected cancelled, got {result}"
 
-    # DB should be completely unchanged
     counts_after = _all_counts(conn)
     for table in SINK_TABLES:
         assert counts_after[table] == counts_before[table], \

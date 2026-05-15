@@ -14,18 +14,25 @@ async def scry_sql(query: str) -> str:
     (INSERT, UPDATE, DELETE, DROP, etc.) are blocked.
 
     Key tables:
-      scry__doc        — knowledge graph entries (@scry.entry markers: designs, specs, tasks, lessons, etc.)
-                         columns: id, kind, status, weight, summary, tags, rationale, applies,
-                                  seeded_questions, implements, supersedes, current_path, ephemeral,
-                                  missing_since, content_hash, created_at, updated_at
-      scry__anchor     — named code location bookmarks with descriptions and seeded questions
-      scry__bind       — binding markers (@scry.bind) linking sources to artifact refs or anchors
-      scry__bind_fts   — full-text search over bindings (local_id, ref, comment)
-      doc_relationship — typed edges between docs (depends_on only); auto-populated from @scry.entry depends_on field
+      scry__doc        — knowledge graph entries (@scry.entry markers)
+                         columns: id, kind, status, weight, summary, rationale, applies,
+                                  current_path, ephemeral, missing_since, content_hash,
+                                  created_at, updated_at
+      scry__doc_tag    — tags as a join table: doc_id, tag
+      scry__doc_seeded_question — seeded questions: doc_id, ordinal, question
+      scry__anchor     — named code location bookmarks: id, doc_id, description
+      scry__anchor_seeded_question — anchor seeded questions: anchor_id, ordinal, question
+      scry__bind       — binding markers (@scry.bind): id, source_doc_id, source_local_id,
+                         target_id, target_fragment, comment
+      scry__rel        — typed edges between docs: from_id, to_id, predicate (depends_on|implements|supersedes), fragment
+      scry__file       — universal file body index: path, doc_id, body, content_hash
+      scry__bind_fts   — full-text search over bindings (source_local_id, target_id, comment)
       scry__warning    — lint-style warnings (e.g. misplaced_doc, depends_on_cycle)
-      scry__doc_fts    — full-text search over docs (summary, tags, rationale, applies, seeded_questions)
-      scry__anchor_fts — full-text search over anchors (name, description, seeded_questions)
-      migration        — applied schema migrations
+      scry__doc_fts    — full-text search over docs (id, summary, rationale, applies, current_path)
+      scry__doc_tag_fts — full-text search over tags
+      scry__doc_seeded_question_fts — full-text search over seeded questions
+      scry__anchor_fts — full-text search over anchors (id, description)
+      scry__file_fts   — full-text search over file bodies (path, body); prefer scry_grep tool
 
     Returns JSON: {"results": [...], "row_count": N}
     """

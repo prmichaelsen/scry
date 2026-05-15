@@ -22,11 +22,12 @@ def _elicitation_message(counts: dict[str, int]) -> str:
     """Format the elicitation prompt with live row counts."""
     return (
         "Sink will clear:\n"
-        f"  - {counts['scry__doc']} docs\n"
-        f"  - {counts['scry__anchor']} anchors\n"
-        f"  - {counts['scry__bind']} binds\n"
-        f"  - {counts['doc_relationship']} relationships\n"
-        f"  - {counts['scry__warning']} warnings\n"
+        f"  - {counts.get('scry__doc', 0)} docs\n"
+        f"  - {counts.get('scry__anchor', 0)} anchors\n"
+        f"  - {counts.get('scry__bind', 0)} binds\n"
+        f"  - {counts.get('scry__rel', 0)} relationships\n"
+        f"  - {counts.get('scry__file', 0)} file bodies\n"
+        f"  - {counts.get('scry__warning', 0)} warnings\n"
         "Disk markers remain intact. Proceed?"
     )
 
@@ -70,10 +71,10 @@ async def _run(
 async def scry_sink(ctx: Context, then_surface: bool = False) -> str:
     """Lower the index back to disk-only state. The DB forgets; the disk remembers.
 
-    Truncates all five scry index tables (scry__doc, scry__anchor, scry__bind,
-    doc_relationship, scry__warning) in a single atomic transaction. Schema is
-    preserved; FTS tables update via existing triggers; the migration table is
-    not touched.  Disk markers are never modified.
+    Truncates all scry index tables (scry__doc, scry__anchor, scry__bind,
+    scry__rel, scry__file, scry__warning, and join tables) in a single atomic
+    transaction.  Schema is preserved; FTS tables update via existing triggers.
+    Disk markers are never modified.
 
     Requires protocol-level user confirmation via MCP elicitation before
     executing — the operation will not proceed if the confirmation is declined,

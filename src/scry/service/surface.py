@@ -4,6 +4,7 @@ Also exposes shared upsert helpers used by the watcher daemon.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -20,6 +21,53 @@ from scry.domain.markers import (
     parse_markers,
 )
 
+# ---------------------------------------------------------------------------
+# scry__file exclusions
+# ---------------------------------------------------------------------------
+
+_FILE_EXCLUDED_EXTENSIONS = frozenset({
+    ".jsonl", ".lock", ".timestamp", ".pyc", ".png", ".jpg", ".jpeg",
+    ".webp", ".svg", ".so", ".pyi", ".f90", ".ipynb", ".parquet",
+})
+
+_FILE_EXCLUDED_PATH_SEGMENTS = frozenset({
+    "node_modules", ".venv", ".git", "agent/drivers", "dist", "build", "__pycache__",
+})
+
+_FILE_EXCLUDED_FILENAMES = frozenset({
+    "LICENSE", "COPYING", "NOTICE",
+})
+
+_FILE_MAX_BYTES = 1 * 1024 * 1024   # 1 MB
+_FILE_MAX_LINE_CHARS = 10_000
+
+
+def _should_index_body(path: Path, rel_path: str, body: str) -> bool:
+    """Return True if this file's body should be indexed in scry__file."""
+    # Extension exclusion
+    if path.suffix.lower() in _FILE_EXCLUDED_EXTENSIONS:
+        return False
+    # Filename exclusion (exact + prefix match for LICENSE.txt etc.)
+    stem = path.stem
+    if stem in _FILE_EXCLUDED_FILENAMES or path.name in _FILE_EXCLUDED_FILENAMES:
+        return False
+    # Path-segment exclusion
+    norm = rel_path.replace("\\", "/")
+    for seg in _FILE_EXCLUDED_PATH_SEGMENTS:
+        if norm.startswith(seg + "/") or f"/{seg}/" in norm:
+            return False
+    # Size cap
+    if len(body.encode("utf-8", errors="replace")) > _FILE_MAX_BYTES:
+        return False
+    # Long-line heuristic
+    if any(len(line) > _FILE_MAX_LINE_CHARS for line in body.splitlines()):
+        return False
+    return True
+
+
+def _body_hash(body: str) -> str:
+    return hashlib.sha256(body.encode("utf-8", errors="replace")).hexdigest()[:16]
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
@@ -35,12 +83,11 @@ def _is_binary(path: Path) -> bool:
 
 
 def _load_gitignore_spec(dirpath: Path) -> "Any | None":
-    """Load .gitignore from dirpath and return a pathspec.PathSpec, or None if unavailable."""
     gi = dirpath / ".gitignore"
     if not gi.is_file():
         return None
     try:
-        import pathspec  # optional dep; skipped if not installed
+        import pathspec
         return pathspec.PathSpec.from_lines("gitwildmatch", gi.read_text(errors="replace").splitlines())
     except ImportError:
         return None
@@ -49,13 +96,6 @@ def _load_gitignore_spec(dirpath: Path) -> "Any | None":
 
 
 def _is_gitignored(path: Path, gitignore_specs: "dict[Path, Any]") -> bool:
-    """Return True if path is matched by any applicable ancestor .gitignore spec.
-
-    Uses resolved (real) paths when computing relative paths so that files inside
-    symlinked directories are checked against THEIR project's gitignore, not the
-    linking project's gitignore. This prevents the linking project's '.gitignore'
-    entry for 'agent/projects/' from suppressing files inside linked projects.
-    """
     real_path = path.resolve()
     for real_dir, spec in gitignore_specs.items():
         if spec is None:
@@ -111,12 +151,314 @@ def _under_agent(rel_path: str) -> bool:
     return norm == "agent" or norm.startswith("agent/")
 
 
-def _record_warnings(conn: sqlite3.Connection, parsed, rel_path: str) -> int:
-    """Replace prior misplaced_doc warnings for `rel_path` and emit fresh ones.
+def _split_ref(ref: str) -> tuple[str, str]:
+    """Split 'target_id#fragment' into (target_id, fragment_or_empty).
 
-    Only clears 'misplaced_doc' kind — other warning kinds (e.g. depends_on_cycle)
-    are written by upsert_doc and must not be clobbered here.
+    Fragment includes the leading '#', e.g. '#FR3'.
+    Returns ('target_id', '') for refs without a fragment.
     """
+    if "#" in ref:
+        idx = ref.index("#")
+        return ref[:idx], ref[idx:]
+    return ref, ""
+
+
+# ---------------------------------------------------------------------------
+# Relationship sync (scry__rel)
+# ---------------------------------------------------------------------------
+
+def _sync_rel_predicate(
+    conn: sqlite3.Connection,
+    marker_id: str,
+    predicate: str,
+    targets: list[str],
+) -> list[str]:
+    """Replace scry__rel rows for (marker_id, predicate) with the given targets.
+
+    Returns warning messages for self-loops and cycles (depends_on only).
+    """
+    conn.execute(
+        "DELETE FROM scry__rel WHERE from_id = ? AND predicate = ?",
+        (marker_id, predicate),
+    )
+    warnings: list[str] = []
+    for target in targets:
+        if target == marker_id:
+            warnings.append(f"self-loop in {predicate} ignored: {marker_id}")
+            continue
+        if predicate == "depends_on":
+            cycle = conn.execute(
+                """
+                WITH RECURSIVE reachable(node) AS (
+                  SELECT to_id FROM scry__rel WHERE from_id = ? AND predicate = 'depends_on'
+                  UNION
+                  SELECT r2.to_id FROM scry__rel r2
+                  JOIN reachable rc ON r2.from_id = rc.node
+                  WHERE r2.predicate = 'depends_on'
+                )
+                SELECT 1 FROM reachable WHERE node = ? LIMIT 1
+                """,
+                (target, marker_id),
+            ).fetchone()
+            if cycle is not None:
+                warnings.append(
+                    f"cycle in depends_on ignored: {marker_id} -> {target} would form a cycle"
+                )
+                continue
+        conn.execute(
+            "INSERT OR IGNORE INTO scry__rel(from_id, to_id, predicate, fragment) VALUES (?, ?, ?, '')",
+            (marker_id, target, predicate),
+        )
+    return warnings
+
+
+def _sync_relationships(conn: sqlite3.Connection, marker: DocMarker) -> list[str]:
+    """Sync scry__rel rows for all relationship fields in the marker."""
+    warnings = _sync_rel_predicate(conn, marker.id, "depends_on", marker.depends_on)
+    _sync_rel_predicate(conn, marker.id, "implements",
+                        [marker.implements] if marker.implements else [])
+    _sync_rel_predicate(conn, marker.id, "supersedes",
+                        [marker.supersedes] if marker.supersedes else [])
+    return warnings
+
+
+# ---------------------------------------------------------------------------
+# upsert_doc
+# ---------------------------------------------------------------------------
+
+def upsert_doc(conn: sqlite3.Connection, marker: DocMarker, rel_path: str) -> None:
+    h = content_hash(marker.raw_body)
+    row = conn.execute(
+        "SELECT content_hash, current_path FROM scry__doc WHERE id = ?", (marker.id,)
+    ).fetchone()
+    ephemeral = _is_ephemeral(rel_path)
+
+    if row is not None and row["content_hash"] == h and row["current_path"] == rel_path:
+        return
+
+    summary = marker.summary or ""
+    kind = marker.kind or "internal"
+    status = marker.status or "active"
+    weight = marker.weight if marker.weight is not None else 0.5
+
+    if row is None:
+        conn.execute(
+            """
+            INSERT INTO scry__doc(id, kind, summary, rationale, applies, status, weight,
+                                  current_path, content_hash, ephemeral, missing_since,
+                                  created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+            """,
+            (
+                marker.id, kind, summary, marker.rationale, marker.applies,
+                status, weight, rel_path, h, ephemeral, _now(), _now(),
+            ),
+        )
+    else:
+        conn.execute(
+            """
+            UPDATE scry__doc SET kind = ?, summary = ?, rationale = ?, applies = ?,
+                                 status = ?, weight = ?, current_path = ?, content_hash = ?,
+                                 ephemeral = ?, missing_since = NULL, updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                kind, summary, marker.rationale, marker.applies,
+                status, weight, rel_path, h, ephemeral, _now(), marker.id,
+            ),
+        )
+
+    # Sync tags join table.
+    conn.execute("DELETE FROM scry__doc_tag WHERE doc_id = ?", (marker.id,))
+    conn.execute("DELETE FROM scry__doc_tag_fts WHERE doc_id = ?", (marker.id,))
+    for tag in marker.tags:
+        conn.execute(
+            "INSERT OR IGNORE INTO scry__doc_tag(doc_id, tag) VALUES (?, ?)",
+            (marker.id, tag),
+        )
+        conn.execute(
+            "INSERT INTO scry__doc_tag_fts(tag, doc_id) VALUES (?, ?)",
+            (tag, marker.id),
+        )
+
+    # Sync seeded_questions join table.
+    conn.execute("DELETE FROM scry__doc_seeded_question WHERE doc_id = ?", (marker.id,))
+    conn.execute("DELETE FROM scry__doc_seeded_question_fts WHERE doc_id = ?", (marker.id,))
+    for ordinal, question in enumerate(marker.seeded_questions):
+        conn.execute(
+            "INSERT INTO scry__doc_seeded_question(doc_id, ordinal, question) VALUES (?, ?, ?)",
+            (marker.id, ordinal, question),
+        )
+        conn.execute(
+            "INSERT INTO scry__doc_seeded_question_fts(question, doc_id) VALUES (?, ?)",
+            (question, marker.id),
+        )
+
+    # Sync relationships.
+    conn.execute(
+        "DELETE FROM scry__warning WHERE kind = 'depends_on_cycle' AND marker_id = ?",
+        (marker.id,),
+    )
+    cycle_warnings = _sync_relationships(conn, marker)
+    for msg in cycle_warnings:
+        conn.execute(
+            """
+            INSERT INTO scry__warning(kind, marker_kind, marker_id, file_path, message)
+            VALUES ('depends_on_cycle', 'doc', ?, ?, ?)
+            """,
+            (marker.id, rel_path, msg),
+        )
+
+
+# ---------------------------------------------------------------------------
+# upsert_anchor
+# ---------------------------------------------------------------------------
+
+def upsert_anchor(
+    conn: sqlite3.Connection,
+    marker: AnchorMarker,
+    doc_id: str | None,
+    rel_path: str,
+) -> None:
+    """Upsert an @scry.anchor marker.
+
+    marker.name is the full 'name~hash' anchor identifier, stored as `id`.
+    doc_id is the FK to the owning doc (nullable — files without a doc marker
+    still get their anchors indexed, just without a FK).
+    """
+    h = content_hash(marker.raw_body)
+    row = conn.execute(
+        "SELECT content_hash, doc_id FROM scry__anchor WHERE id = ?", (marker.name,)
+    ).fetchone()
+    if row is not None and row["content_hash"] == h and row["doc_id"] == doc_id:
+        return
+
+    if row is None:
+        conn.execute(
+            """
+            INSERT INTO scry__anchor(id, doc_id, description, content_hash, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (marker.name, doc_id, marker.description, h, _now(), _now()),
+        )
+    else:
+        conn.execute(
+            """
+            UPDATE scry__anchor SET doc_id = ?, description = ?, content_hash = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (doc_id, marker.description, h, _now(), marker.name),
+        )
+
+    # Sync seeded_questions join table.
+    conn.execute("DELETE FROM scry__anchor_seeded_question WHERE anchor_id = ?", (marker.name,))
+    for ordinal, question in enumerate(marker.seeded_questions):
+        conn.execute(
+            "INSERT INTO scry__anchor_seeded_question(anchor_id, ordinal, question) VALUES (?, ?, ?)",
+            (marker.name, ordinal, question),
+        )
+
+
+# ---------------------------------------------------------------------------
+# upsert_bind
+# ---------------------------------------------------------------------------
+
+def upsert_bind(
+    conn: sqlite3.Connection,
+    marker: BindMarker,
+    source_doc_id: str | None,
+    rel_path: str,
+) -> None:
+    """Upsert a @scry.bind marker record.
+
+    Uniqueness key: (source_local_id, target_id, target_fragment).
+    Comma-expanded binds share the same source_local_id but have distinct targets.
+    """
+    target_id, target_fragment = _split_ref(marker.ref)
+    h = content_hash(marker.raw_body)
+    row = conn.execute(
+        """
+        SELECT content_hash, source_doc_id FROM scry__bind
+        WHERE source_local_id = ? AND target_id = ? AND target_fragment = ?
+        """,
+        (marker.local_id, target_id, target_fragment),
+    ).fetchone()
+    if row is not None and row["content_hash"] == h and row["source_doc_id"] == source_doc_id:
+        return
+
+    if row is None:
+        conn.execute(
+            """
+            INSERT INTO scry__bind(source_doc_id, source_local_id, target_id, target_fragment,
+                                   comment, content_hash, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (source_doc_id, marker.local_id, target_id, target_fragment,
+             marker.comment, h, _now(), _now()),
+        )
+    else:
+        conn.execute(
+            """
+            UPDATE scry__bind SET source_doc_id = ?, comment = ?, content_hash = ?, updated_at = ?
+            WHERE source_local_id = ? AND target_id = ? AND target_fragment = ?
+            """,
+            (source_doc_id, marker.comment, h, _now(),
+             marker.local_id, target_id, target_fragment),
+        )
+
+
+# ---------------------------------------------------------------------------
+# upsert_file
+# ---------------------------------------------------------------------------
+
+def upsert_file(
+    conn: sqlite3.Connection,
+    abs_path: Path,
+    project_root: Path,
+    first_doc_id: str | None,
+    body: str,
+) -> bool:
+    """Upsert a file body into scry__file if it passes exclusion checks.
+
+    Returns True if the row was written (new or updated), False if skipped.
+    """
+    rel_path = str(abs_path.relative_to(project_root))
+    if not _should_index_body(abs_path, rel_path, body):
+        return False
+
+    h = _body_hash(body)
+    row = conn.execute(
+        "SELECT content_hash, doc_id FROM scry__file WHERE path = ?", (rel_path,)
+    ).fetchone()
+    if row is not None and row["content_hash"] == h and row["doc_id"] == first_doc_id:
+        return False
+
+    now = _now()
+    if row is None:
+        conn.execute(
+            """
+            INSERT INTO scry__file(path, doc_id, body, content_hash, last_modified)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (rel_path, first_doc_id, body, h, now),
+        )
+    else:
+        conn.execute(
+            """
+            UPDATE scry__file SET doc_id = ?, body = ?, content_hash = ?, last_modified = ?
+            WHERE path = ?
+            """,
+            (first_doc_id, body, h, now, rel_path),
+        )
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Warning helpers
+# ---------------------------------------------------------------------------
+
+def _record_warnings(conn: sqlite3.Connection, parsed: ParseResult, rel_path: str) -> int:
+    """Replace prior misplaced_doc warnings for rel_path and emit fresh ones."""
     conn.execute(
         "DELETE FROM scry__warning WHERE file_path = ? AND kind = 'misplaced_doc'",
         (rel_path,),
@@ -136,170 +478,17 @@ def _record_warnings(conn: sqlite3.Connection, parsed, rel_path: str) -> int:
     return n
 
 
-def _sync_relationships(conn: sqlite3.Connection, marker: DocMarker) -> list[str]:
-    """Sync doc_relationship rows for marker.depends_on. Returns warning messages for cycles."""
-    # Clear stale relationship rows for this doc.
-    conn.execute(
-        "DELETE FROM doc_relationship WHERE from_id = ? AND relationship = 'depends_on'",
-        (marker.id,),
-    )
-    warnings: list[str] = []
-    for dep_id in marker.depends_on:
-        if dep_id == marker.id:
-            warnings.append(f"self-loop in depends_on ignored: {marker.id}")
-            continue
-        # Cycle check: would inserting (marker.id -> dep_id) form a cycle?
-        cycle = conn.execute(
-            """
-            WITH RECURSIVE reachable(node) AS (
-              SELECT to_id FROM doc_relationship WHERE from_id = ?
-              UNION
-              SELECT dr.to_id FROM doc_relationship dr
-              JOIN reachable r ON dr.from_id = r.node
-            )
-            SELECT 1 FROM reachable WHERE node = ? LIMIT 1
-            """,
-            (dep_id, marker.id),
-        ).fetchone()
-        if cycle is not None:
-            warnings.append(
-                f"cycle in depends_on ignored: {marker.id} -> {dep_id} would form a cycle"
-            )
-            continue
-        conn.execute(
-            "INSERT OR IGNORE INTO doc_relationship(from_id, to_id, relationship) VALUES (?, ?, 'depends_on')",
-            (marker.id, dep_id),
-        )
-    return warnings
-
-
-def upsert_doc(conn: sqlite3.Connection, marker: DocMarker, rel_path: str) -> None:
-    h = content_hash(marker.raw_body)
-    row = conn.execute(
-        "SELECT content_hash FROM scry__doc WHERE id = ?", (marker.id,)
-    ).fetchone()
-    ephemeral = _is_ephemeral(rel_path)
-    if row is not None and row["content_hash"] == h and _path_unchanged(conn, "scry__doc", marker.id, rel_path):
-        return
-    if row is None:
-        conn.execute(
-            """
-            INSERT INTO scry__doc(id, current_path, summary, kind, weight, status, tags,
-                                  rationale, applies, seeded_questions, implements, supersedes,
-                                  ephemeral, missing_since, content_hash, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
-            """,
-            (
-                marker.id, rel_path, marker.summary, marker.kind, marker.weight, marker.status,
-                marker.tags, marker.rationale, marker.applies, marker.seeded_questions,
-                marker.implements, marker.supersedes,
-                ephemeral, h, _now(), _now(),
-            ),
-        )
-    else:
-        conn.execute(
-            """
-            UPDATE scry__doc SET current_path = ?, summary = ?, kind = ?, weight = ?, status = ?,
-                                 tags = ?, rationale = ?, applies = ?, seeded_questions = ?,
-                                 implements = ?, supersedes = ?,
-                                 ephemeral = ?, missing_since = NULL, content_hash = ?,
-                                 updated_at = ?
-            WHERE id = ?
-            """,
-            (
-                rel_path, marker.summary, marker.kind, marker.weight, marker.status,
-                marker.tags, marker.rationale, marker.applies, marker.seeded_questions,
-                marker.implements, marker.supersedes,
-                ephemeral, h, _now(), marker.id,
-            ),
-        )
-    # Sync depends_on into doc_relationship; record cycle warnings.
-    # Clear stale cycle warnings for this marker before re-inserting.
-    conn.execute(
-        "DELETE FROM scry__warning WHERE kind = 'depends_on_cycle' AND marker_id = ?",
-        (marker.id,),
-    )
-    cycle_warnings = _sync_relationships(conn, marker)
-    for msg in cycle_warnings:
-        conn.execute(
-            """
-            INSERT INTO scry__warning(kind, marker_kind, marker_id, file_path, message)
-            VALUES ('depends_on_cycle', 'doc', ?, ?, ?)
-            """,
-            (marker.id, rel_path, msg),
-        )
-
-
-def upsert_anchor(conn: sqlite3.Connection, marker: AnchorMarker, rel_path: str) -> None:
-    h = content_hash(marker.raw_body)
-    row = conn.execute(
-        "SELECT content_hash, current_path FROM scry__anchor WHERE name = ?", (marker.name,)
-    ).fetchone()
-    if row is not None and row["content_hash"] == h and row["current_path"] == rel_path:
-        return
-    if row is None:
-        conn.execute(
-            """
-            INSERT INTO scry__anchor(name, description, seeded_questions, current_path,
-                                     content_hash, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                marker.name, marker.description, marker.seeded_questions,
-                rel_path, h, _now(), _now(),
-            ),
-        )
-    else:
-        conn.execute(
-            """
-            UPDATE scry__anchor SET description = ?, seeded_questions = ?, current_path = ?,
-                                    content_hash = ?, updated_at = ?
-            WHERE name = ?
-            """,
-            (marker.description, marker.seeded_questions, rel_path, h, _now(), marker.name),
-        )
-
-
-def upsert_bind(conn: sqlite3.Connection, marker: BindMarker, rel_path: str) -> None:
-    """Upsert a @scry.bind marker record.
-
-    The uniqueness key is (local_id, ref, file_path): comma-expanded binds share
-    the same local_id but have distinct refs, and all must be stored independently.
-    """
-    h = content_hash(marker.raw_body)
-    row = conn.execute(
-        "SELECT content_hash FROM scry__bind WHERE local_id = ? AND ref = ? AND file_path = ?",
-        (marker.local_id, marker.ref, rel_path),
-    ).fetchone()
-    if row is not None and row["content_hash"] == h:
-        return
-    if row is None:
-        conn.execute(
-            """
-            INSERT INTO scry__bind(local_id, ref, comment, file_path, content_hash,
-                                   created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (marker.local_id, marker.ref, marker.comment, rel_path, h, _now(), _now()),
-        )
-    else:
-        conn.execute(
-            """
-            UPDATE scry__bind SET comment = ?, content_hash = ?, updated_at = ?
-            WHERE local_id = ? AND ref = ? AND file_path = ?
-            """,
-            (marker.comment, h, _now(), marker.local_id, marker.ref, rel_path),
-        )
-
-
-def _path_unchanged(conn: sqlite3.Connection, table: str, ident: str, rel_path: str) -> bool:
-    row = conn.execute(f"SELECT current_path FROM {table} WHERE id = ?", (ident,)).fetchone()
-    return row is not None and row["current_path"] == rel_path
-
+# ---------------------------------------------------------------------------
+# reindex_file
+# ---------------------------------------------------------------------------
 
 def reindex_file(conn: sqlite3.Connection, abs_path: Path, project_root: Path) -> ParseResult:
-    """Parse a single file and upsert its markers. Also clear stale bind/anchor
-    rows that previously came from this path but no longer do."""
+    """Parse a single file and upsert its markers.
+
+    Associates anchors and binds with the first doc found in the same file
+    (or None if the file has no doc marker).  Clears stale anchor/bind rows
+    that previously came from this file's docs but no longer appear.
+    """
     rel_path = str(abs_path.relative_to(project_root))
     if _is_binary(abs_path):
         return ParseResult()
@@ -311,42 +500,62 @@ def reindex_file(conn: sqlite3.Connection, abs_path: Path, project_root: Path) -
 
     for d in parsed.docs:
         upsert_doc(conn, d, rel_path)
+
+    # The first doc in the file owns anchors and binds.
+    first_doc_id: str | None = parsed.docs[0].id if parsed.docs else None
+
+    # Index file body (skipped for binary-ish / excluded files).
+    upsert_file(conn, abs_path, project_root, first_doc_id, content)
+
+    # Clean stale anchors that were previously owned by this file's doc(s).
+    current_doc_ids = {d.id for d in parsed.docs}
+    seen_anchor_ids = {m.name for m in parsed.anchors}
+    if current_doc_ids:
+        placeholders = ",".join("?" * len(current_doc_ids))
+        existing_anchors = {
+            r["id"]
+            for r in conn.execute(
+                f"SELECT id FROM scry__anchor WHERE doc_id IN ({placeholders})",
+                tuple(current_doc_ids),
+            ).fetchall()
+        }
+        for stale_id in existing_anchors - seen_anchor_ids:
+            conn.execute("DELETE FROM scry__anchor WHERE id = ?", (stale_id,))
+
     for a in parsed.anchors:
-        upsert_anchor(conn, a, rel_path)
+        upsert_anchor(conn, a, first_doc_id, rel_path)
 
-    # Hard-delete bind rows that previously belonged to this file but were not seen this pass.
-    # Use (local_id, ref) pairs as the key since comma expansion produces multiple rows per local_id.
-    seen_bind_keys = {(m.local_id, m.ref) for m in parsed.binds}
-    seen_anchor_names = {m.name for m in parsed.anchors}
-
-    existing_binds = {(r["local_id"], r["ref"]) for r in conn.execute(
-        "SELECT local_id, ref FROM scry__bind WHERE file_path = ?", (rel_path,)
-    ).fetchall()}
-    for stale_local_id, stale_ref in existing_binds - seen_bind_keys:
-        conn.execute(
-            "DELETE FROM scry__bind WHERE local_id = ? AND ref = ? AND file_path = ?",
-            (stale_local_id, stale_ref, rel_path),
-        )
-
-    existing_anchors = {r["name"] for r in conn.execute(
-        "SELECT name FROM scry__anchor WHERE current_path = ?", (rel_path,)
-    ).fetchall()}
-    for stale_name in existing_anchors - seen_anchor_names:
-        conn.execute("DELETE FROM scry__anchor WHERE name = ?", (stale_name,))
+    # Clean stale binds for the source doc.
+    seen_bind_keys = {(_split_ref(m.ref)[0], _split_ref(m.ref)[1]) for m in parsed.binds}
+    if first_doc_id is not None:
+        existing_binds = {
+            (r["target_id"], r["target_fragment"])
+            for r in conn.execute(
+                "SELECT target_id, target_fragment FROM scry__bind WHERE source_doc_id = ?",
+                (first_doc_id,),
+            ).fetchall()
+        }
+        for stale_tid, stale_frag in existing_binds - seen_bind_keys:
+            conn.execute(
+                "DELETE FROM scry__bind WHERE source_doc_id = ? AND target_id = ? AND target_fragment = ?",
+                (first_doc_id, stale_tid, stale_frag),
+            )
 
     for bind in parsed.binds:
-        upsert_bind(conn, bind, rel_path)
+        upsert_bind(conn, bind, first_doc_id, rel_path)
 
     _record_warnings(conn, parsed, rel_path)
-
     conn.commit()
     return parsed
 
 
+# ---------------------------------------------------------------------------
+# File/subtree deletion handlers
+# ---------------------------------------------------------------------------
+
 def handle_file_deletion(conn: sqlite3.Connection, rel_path: str) -> None:
-    """Soft-delete docs; hard-delete anchors/binds/relationships for a removed file."""
+    """Soft-delete docs; hard-delete anchors/binds/relationships/file for a removed file."""
     now = _now()
-    # Collect doc IDs for this path before soft-deleting (for relationship cleanup).
     doc_ids = [
         r["id"] for r in conn.execute(
             "SELECT id FROM scry__doc WHERE current_path = ? AND missing_since IS NULL",
@@ -357,29 +566,42 @@ def handle_file_deletion(conn: sqlite3.Connection, rel_path: str) -> None:
         "UPDATE scry__doc SET missing_since = ? WHERE current_path = ? AND missing_since IS NULL",
         (now, rel_path),
     )
-    conn.execute("DELETE FROM scry__anchor WHERE current_path = ?", (rel_path,))
-    conn.execute("DELETE FROM scry__bind WHERE file_path = ?", (rel_path,))
+    if doc_ids:
+        placeholders = ",".join("?" * len(doc_ids))
+        conn.execute(f"DELETE FROM scry__anchor WHERE doc_id IN ({placeholders})", tuple(doc_ids))
+        conn.execute(f"DELETE FROM scry__bind WHERE source_doc_id IN ({placeholders})", tuple(doc_ids))
+        for doc_id in doc_ids:
+            conn.execute("DELETE FROM scry__rel WHERE from_id = ?", (doc_id,))
     conn.execute("DELETE FROM scry__warning WHERE file_path = ?", (rel_path,))
-    for doc_id in doc_ids:
-        conn.execute(
-            "DELETE FROM doc_relationship WHERE from_id = ? AND relationship = 'depends_on'",
-            (doc_id,),
-        )
+    # Hard-delete the file body row — it's derivable from disk; no value in orphan.
+    conn.execute("DELETE FROM scry__file WHERE path = ?", (rel_path,))
     conn.commit()
 
 
 def handle_subtree_deletion(conn: sqlite3.Connection, prefix: str) -> None:
-    """Soft-delete docs; hard-delete anchors/binds for a removed subtree."""
+    """Soft-delete docs; hard-delete anchors/binds/file-rows for a removed subtree."""
     now = _now()
+    doc_ids = [
+        r["id"] for r in conn.execute(
+            "SELECT id FROM scry__doc WHERE current_path LIKE ?", (prefix + "%",)
+        ).fetchall()
+    ]
     conn.execute(
         "UPDATE scry__doc SET missing_since = COALESCE(missing_since, ?) WHERE current_path LIKE ?",
         (now, prefix + "%"),
     )
-    conn.execute("DELETE FROM scry__anchor WHERE current_path LIKE ?", (prefix + "%",))
-    conn.execute("DELETE FROM scry__bind WHERE file_path LIKE ?", (prefix + "%",))
+    if doc_ids:
+        placeholders = ",".join("?" * len(doc_ids))
+        conn.execute(f"DELETE FROM scry__anchor WHERE doc_id IN ({placeholders})", tuple(doc_ids))
+        conn.execute(f"DELETE FROM scry__bind WHERE source_doc_id IN ({placeholders})", tuple(doc_ids))
     conn.execute("DELETE FROM scry__warning WHERE file_path LIKE ?", (prefix + "%",))
+    conn.execute("DELETE FROM scry__file WHERE path LIKE ?", (prefix + "%",))
     conn.commit()
 
+
+# ---------------------------------------------------------------------------
+# surface
+# ---------------------------------------------------------------------------
 
 def surface(
     conn: sqlite3.Connection,
@@ -405,45 +627,27 @@ def surface(
 
     # Flag any DB record whose current_path is not on disk.
     flagged = []
-    for table in ("scry__doc",):
-        rows = conn.execute(
-            f"SELECT id, current_path FROM {table} WHERE current_path IS NOT NULL"
-        ).fetchall()
-        for r in rows:
-            cp = r["current_path"]
-            if cp and cp not in visited_paths:
-                conn.execute(
-                    f"UPDATE {table} SET missing_since = COALESCE(missing_since, ?) WHERE id = ?",
-                    (_now(), r["id"]),
-                )
-                flagged.append({"table": table, "id": r["id"], "path": cp})
+    rows = conn.execute(
+        "SELECT id, current_path FROM scry__doc WHERE current_path IS NOT NULL"
+    ).fetchall()
+    for r in rows:
+        cp = r["current_path"]
+        if cp and cp not in visited_paths:
+            conn.execute(
+                "UPDATE scry__doc SET missing_since = COALESCE(missing_since, ?) WHERE id = ?",
+                (_now(), r["id"]),
+            )
+            flagged.append({"table": "scry__doc", "id": r["id"], "path": cp})
 
     deleted: list[dict[str, Any]] = []
     if force:
-        for table in ("scry__doc",):
-            rows = conn.execute(
-                f"SELECT id FROM {table} WHERE missing_since IS NOT NULL"
-            ).fetchall()
-            for r in rows:
-                conn.execute(f"DELETE FROM {table} WHERE id = ?", (r["id"],))
-                deleted.append({"table": table, "id": r["id"]})
-        # Anchors/binds for missing paths can also be cleared.
-        for table, col in (
-            ("scry__anchor", "current_path"),
-            ("scry__bind", "file_path"),
-        ):
-            rows = conn.execute(
-                f"SELECT * FROM {table} WHERE {col} IS NOT NULL"
-            ).fetchall()
-            for r in rows:
-                cp = r[col]
-                if cp not in visited_paths:
-                    key_col = "name" if table == "scry__anchor" else "local_id"
-                    conn.execute(
-                        f"DELETE FROM {table} WHERE {key_col} = ? AND {col} = ?",
-                        (r[key_col], cp),
-                    )
-                    deleted.append({"table": table, key_col: r[key_col]})
+        rows = conn.execute(
+            "SELECT id FROM scry__doc WHERE missing_since IS NOT NULL"
+        ).fetchall()
+        for r in rows:
+            conn.execute("DELETE FROM scry__doc WHERE id = ?", (r["id"],))
+            deleted.append({"table": "scry__doc", "id": r["id"]})
+
     conn.commit()
 
     warnings = conn.execute(
