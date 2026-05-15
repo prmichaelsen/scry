@@ -4,6 +4,73 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-05-15
+
+### Fixed
+
+- **Anchor `id` column in mint** — `mint.py` was querying `name` as the PK column for
+  anchors; corrected to `id` to match the schema in `001_initial.sql`.
+- **`tags` and `seeded_questions` typed as `list[str]`** — `markers.py` types were
+  `str | None`; now correctly `list[str]`. Fixes downstream crashes when iterating
+  these fields.
+- **`relationship.py` fully rewritten for `scry__rel`** — previous version referenced
+  the removed `doc_relationship` table. Now reads/writes `scry__rel` with correct
+  columns (`from_id`, `to_id`, `predicate`, `fragment`). Covers `depends_on`,
+  `implements`, and `supersedes` predicates.
+- **Test suite updated to new schema** — `test_markers.py`, `test_mint.py`,
+  `test_relationship.py`, `test_surface.py` updated for `scry__rel` and the anchor
+  `id`/`doc_id` column layout. 135/135 tests pass.
+
+---
+
+## [0.13.0] - 2026-05-15
+
+### Added
+
+- **`scry__file` body index** — all git-tracked text files are indexed into
+  `scry__file` (path, doc_id, body, content_hash) with exclusions for binary
+  extensions, paths matching `node_modules`/`dist`/`.venv`/etc., files >1 MB,
+  lines >10k chars, and LICENSE files. FTS5 (porter + unicode61) makes the body
+  searchable.
+- **`scry_grep` MCP tool** — full-text search over `scry__file_fts`. Supports
+  `kind`, `status`, and `path_glob` filters; returns one hit per file with a BM25-
+  ranked snippet (matched terms highlighted with `<mark>` tags). 25 new tests.
+- **Single-schema migration** — `001_initial.sql` is the only migration file.
+  Migration files `002`–`006` deleted; `migration.py` simplified to run
+  `001_initial.sql` once at startup with no migration-tracking table. DB is a
+  pure cache: drop and re-index at any time.
+- **`scry__file` added to `SINK_TABLES`** — `scry_sink` now truncates the file
+  body index along with the marker tables.
+
+### Changed
+
+- **`scry-parse` upgraded to `>=1.0.5`** — picks up phantom-marker suppression
+  for code blocks and Python single-line string literals (prevents false marker
+  rows from code like `"marker_open": f"<!-- @scry.anchor {ident}"`).
+- **`scry_sink` elicitation message updated** — `doc_relationship` → `scry__rel`,
+  `scry__file` added to listed tables.
+- **`scry_sql` docstring updated** — `scry__file` and `scry__file_fts` documented;
+  migration table entry removed.
+
+### Internal
+
+- 135/135 tests pass (25 new for grep/file indexing).
+
+---
+
+## [0.12.0] - 2026-05-15
+
+### Fixed
+
+- **Local `scry-parse` source override removed** — `[tool.uv.sources]` override
+  for a local path to `scry-parse` removed now that v1.0.5 is on PyPI.
+
+### Internal
+
+- 135/135 tests pass.
+
+---
+
 ## [0.11.0] - 2026-05-15
 
 ### Added
