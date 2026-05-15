@@ -166,7 +166,7 @@ def test_sink_atomic(conn):
 # ---------------------------------------------------------------------------
 
 def test_sink_then_surface(conn, project_tree):
-    """sink(conn) + surface(conn) = populated DB from disk markers."""
+    """sink(conn, then_surface=True) clears the DB then re-indexes from disk markers."""
     # Write a marker file on disk
     f = project_tree / "agent" / "tasks" / "sink-test.md"
     f.parent.mkdir(parents=True, exist_ok=True)
@@ -176,16 +176,18 @@ def test_sink_then_surface(conn, project_tree):
     surface(conn, project_root=project_tree)
     assert conn.execute("SELECT COUNT(*) FROM scry__doc").fetchone()[0] >= 1
 
-    # Sink
-    sink(conn)
-    assert conn.execute("SELECT COUNT(*) FROM scry__doc").fetchone()[0] == 0
+    # Single call: sink + resurface
+    result = sink(conn, then_surface=True, project_root=project_tree)
 
-    # Surface again (mimics then_surface=True)
-    surface(conn, project_root=project_tree)
+    # Result must include surface sub-results
+    assert "surface" in result, "then_surface=True should include surface results"
+    assert result["surface"]["markers_indexed"] >= 1
+
+    # DB should be re-populated from disk
     row = conn.execute(
         "SELECT id FROM scry__doc WHERE id = 'task.sink-test~aabbccdd'"
     ).fetchone()
-    assert row is not None, "DB should be re-populated from disk after sink+surface"
+    assert row is not None, "DB should be re-populated from disk after sink(then_surface=True)"
 
 
 # ---------------------------------------------------------------------------
