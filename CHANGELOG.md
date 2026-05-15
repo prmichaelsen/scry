@@ -4,6 +4,22 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.5] - 2026-05-15
+
+### Changed
+
+- **Minimum scry-parse raised to 1.0.8** — FR11.6 v1.0.4 conformance: single-line
+  `@scry.bind` markers inside HTML (`<!-- ... -->`) or C-style (`/* ... */`) block
+  comments now correctly strip the closing delimiter from the `comment` field.
+  Users on scry-parse 1.0.7 would leak ` -->` or ` */` into comment values.
+  Constraint updated from `>=1.0.7` to `>=1.0.8`.
+
+### Internal
+
+- 143/143 tests pass.
+
+---
+
 ## [0.15.4] - 2026-05-15
 
 ### Added
