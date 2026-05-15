@@ -4,6 +4,30 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-05-15
+
+### Added
+
+- **`scry_sink` MCP tool** — operational mirror of `scry_surface`: lowers the
+  index back to disk-only state. Truncates `scry__doc`, `scry__anchor`,
+  `scry__bind`, `doc_relationship`, and `scry__warning` in a single atomic
+  transaction. Schema is preserved; FTS tables update via existing AFTER DELETE
+  triggers; the migration table is not touched. Disk markers are never modified.
+  Tool description: `scry_sink: lower the index back to disk-only state. The DB
+  forgets; the disk remembers.`
+- **MCP elicitation on `scry_sink`** — the tool requires protocol-level user
+  confirmation before executing. It computes live row counts and displays them
+  in the elicitation prompt before proceeding. If the user declines, cancels, or
+  elicitation is unavailable, the operation fails closed (no data deleted). This
+  establishes the elicitation pattern for future destructive scry tools.
+- **`then_surface` parameter on `scry_sink`** — `then_surface: bool = False`; if
+  true, runs `scry_surface()` immediately after the sink in a single call,
+  expressing "reset + reindex."
+- 5 new tests: `test_sink_truncates_all_tables`, `test_sink_preserves_schema`,
+  `test_sink_atomic`, `test_sink_then_surface`, `test_sink_requires_elicitation`.
+
+---
+
 ## [0.10.4] - 2026-05-14
 
 ### Fixed
