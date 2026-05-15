@@ -174,9 +174,13 @@ def test_mint_bind_no_collision_check(conn):
 
 def test_mint_anchor_tier1_collision(conn):
     """Collision detection works for anchor kind too."""
+    # Insert a doc first so the anchor FK can reference it
     conn.execute(
-        "INSERT INTO scry__anchor(name, description) "
-        "VALUES ('auth-check~f1e2d3c4', 'JWT check point')"
+        "INSERT INTO scry__doc(id, kind, status) VALUES ('task.owner~deadbeef','task','active')"
+    )
+    conn.execute(
+        "INSERT INTO scry__anchor(id, doc_id, description) "
+        "VALUES ('auth-check~f1e2d3c4', 'task.owner~deadbeef', 'JWT check point')"
     )
     conn.commit()
     out = mint(conn, "anchor", "auth-check")

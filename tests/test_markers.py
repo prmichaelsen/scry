@@ -83,7 +83,7 @@ def test_parse_entry_block_extracts_all_fields():
     assert "JWT auth middleware" in d.summary
     assert "Missing causes auth bypass" in d.rationale
     assert d.applies == "modifying auth"
-    assert "How does refresh work" in d.seeded_questions
+    assert any("How does refresh work" in q for q in d.seeded_questions)
 
 
 def test_legacy_doc_marker_not_parsed():
@@ -104,7 +104,7 @@ def test_parse_anchor_block():
     a = r.anchors[0]
     assert a.name == "auth-check~f1e2d3c4"
     assert "JWT validation point" in a.description
-    assert "expired" in a.seeded_questions
+    assert any("expired" in q for q in a.seeded_questions)
 
 
 # ---------------------------------------------------------------------------

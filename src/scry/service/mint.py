@@ -16,7 +16,7 @@ _TABLE = {
 
 _PRIMARY_KEY_COL = {
     "entry": "id",
-    "anchor": "name",
+    "anchor": "id",
 }
 
 # Summary column name per table (for collision warnings)

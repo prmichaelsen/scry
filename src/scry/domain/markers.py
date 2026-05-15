@@ -59,10 +59,10 @@ class DocMarker:
     summary: str | None = None
     status: str | None = None
     weight: float | None = None
-    tags: str | None = None
+    tags: list[str] = field(default_factory=list)
     rationale: str | None = None
     applies: str | None = None
-    seeded_questions: str | None = None
+    seeded_questions: list[str] = field(default_factory=list)
     # Truly-optional spec fields (scry-spec v1.0 FR_OPT1–FR_OPT3)
     depends_on: list[str] = field(default_factory=list)
     implements: str | None = None
@@ -75,7 +75,7 @@ class DocMarker:
 class AnchorMarker:
     name: str
     description: str | None = None
-    seeded_questions: str | None = None
+    seeded_questions: list[str] = field(default_factory=list)
     raw_body: str = ""
     span: tuple[int, int] = (0, 0)
 
@@ -153,10 +153,10 @@ def parse_markers(content: str, file: str = "") -> ParseResult:
             summary=_coerce_text(e.summary),
             status=_coerce_text(e.status),
             weight=e.weight,
-            tags=_coerce_text(e.tags),
+            tags=list(e.tags) if e.tags else [],
             rationale=_coerce_text(e.rationale),
             applies=_coerce_text(e.applies),
-            seeded_questions=_coerce_text(e.seeded_questions),
+            seeded_questions=list(e.seeded_questions) if e.seeded_questions else [],
             depends_on=list(e.depends_on) if e.depends_on else [],
             implements=_coerce_text(e.implements) if e.implements else None,
             supersedes=_coerce_text(e.supersedes) if e.supersedes else None,
@@ -170,7 +170,7 @@ def parse_markers(content: str, file: str = "") -> ParseResult:
         anchors.append(AnchorMarker(
             name=a.name,
             description=_coerce_text(a.description),
-            seeded_questions=_coerce_text(a.seeded_questions),
+            seeded_questions=list(a.seeded_questions) if a.seeded_questions else [],
             raw_body=raw,
             span=a.span,
         ))

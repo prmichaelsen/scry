@@ -1,4 +1,4 @@
-"""scry_surface tests (FR20-FR22, optional-fields)."""
+"""scry_surface tests (FR20-FR22, optional-fields, schema-rewrite)."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -75,22 +75,21 @@ def test_surface_force_deletes_missing(conn, project_tree):
 
 
 def test_handle_file_deletion_soft_deletes_doc_hard_deletes_bind(conn):
-    rel = "src/foo.py"
+    rel = "agent/foo.py"
     conn.execute(
         "INSERT INTO scry__doc(id, kind, status, current_path) VALUES ('task.x~aaaaaaaa','task','active',?)",
         (rel,),
     )
     conn.execute(
-        "INSERT INTO scry__bind(local_id, ref, file_path) VALUES ('impl~bbbbbbbb','spec.x~yz#FR1',?)",
-        (rel,),
+        """INSERT INTO scry__bind(source_doc_id, source_local_id, target_id, target_fragment)
+           VALUES ('task.x~aaaaaaaa', 'impl~bbbbbbbb', 'spec.x~yz', '#FR1')""",
     )
     conn.commit()
     handle_file_deletion(conn, rel)
     doc = conn.execute("SELECT missing_since FROM scry__doc WHERE id='task.x~aaaaaaaa'").fetchone()
     assert doc is not None and doc["missing_since"] is not None
     bind = conn.execute(
-        "SELECT local_id FROM scry__bind WHERE local_id='impl~bbbbbbbb' AND file_path=?",
-        (rel,),
+        "SELECT source_local_id FROM scry__bind WHERE source_local_id='impl~bbbbbbbb'"
     ).fetchone()
     assert bind is None
 
@@ -137,25 +136,87 @@ def test_surface_indexes_bind_markers(conn, project_tree):
     _write(project_tree / "agent" / "tasks" / "ex.md", content)
     surface(conn, project_root=project_tree)
     rows = conn.execute(
-        "SELECT local_id, ref FROM scry__bind WHERE local_id = 'impl-x~aabbccdd'"
+        "SELECT source_local_id, target_id, target_fragment FROM scry__bind "
+        "WHERE source_local_id = 'impl-x~aabbccdd'"
     ).fetchall()
     assert len(rows) == 1
-    assert rows[0]["ref"] == "spec.x~yz#FR1"
+    assert rows[0]["target_id"] == "spec.x~yz"
+    assert rows[0]["target_fragment"] == "#FR1"
 
 
 def test_bind_fts_searchable(conn, project_tree):
     """Bind comments are searchable via FTS (FR2 requirement)."""
-    content = "# @scry.bind impl-y~bbccddee spec.y~ab#FR2 OAuth integration pending\n"
+    content = DOC_BLOCK + "# @scry.bind impl-y~bbccddee spec.y~ab#FR2 OAuth integration pending\n"
     _write(project_tree / "agent" / "tasks" / "ex.md", content)
     surface(conn, project_root=project_tree)
     rows = conn.execute(
-        "SELECT local_id FROM scry__bind_fts WHERE scry__bind_fts MATCH 'OAuth'"
+        "SELECT source_local_id FROM scry__bind_fts WHERE scry__bind_fts MATCH 'OAuth'"
     ).fetchall()
     assert len(rows) >= 1
 
 
 # ---------------------------------------------------------------------------
-# Optional fields: implements, supersedes, depends_on
+# Tags and seeded_questions as join tables
+# ---------------------------------------------------------------------------
+
+DOC_WITH_TAGS = """\
+<!-- @scry.entry
+id: design.tagged~aaaaaaaa
+kind: design
+summary: tagged design
+status: active
+weight: 0.8
+tags: ["scope:identity", "topic:memory"]
+seeded_questions:
+  - "Why does this exist?"
+  - "How does memory work?"
+@scry.entry.end -->
+"""
+
+
+def test_tags_stored_in_join_table(conn, project_tree):
+    """tags are stored as rows in scry__doc_tag, not as a column on scry__doc."""
+    _write(project_tree / "agent" / "design" / "tagged.md", DOC_WITH_TAGS)
+    surface(conn, project_root=project_tree)
+    tags = {r["tag"] for r in conn.execute(
+        "SELECT tag FROM scry__doc_tag WHERE doc_id = 'design.tagged~aaaaaaaa'"
+    ).fetchall()}
+    assert "scope:identity" in tags
+    assert "topic:memory" in tags
+
+
+def test_tags_fts_searchable(conn, project_tree):
+    """Tags are searchable via scry__doc_tag_fts."""
+    _write(project_tree / "agent" / "design" / "tagged.md", DOC_WITH_TAGS)
+    surface(conn, project_root=project_tree)
+    rows = conn.execute(
+        "SELECT doc_id FROM scry__doc_tag_fts WHERE scry__doc_tag_fts MATCH 'identity'"
+    ).fetchall()
+    assert any(r["doc_id"] == "design.tagged~aaaaaaaa" for r in rows)
+
+
+def test_seeded_questions_stored_in_join_table(conn, project_tree):
+    """seeded_questions are stored as rows in scry__doc_seeded_question."""
+    _write(project_tree / "agent" / "design" / "tagged.md", DOC_WITH_TAGS)
+    surface(conn, project_root=project_tree)
+    questions = [r["question"] for r in conn.execute(
+        "SELECT question FROM scry__doc_seeded_question WHERE doc_id = 'design.tagged~aaaaaaaa' ORDER BY ordinal"
+    ).fetchall()]
+    assert "Why does this exist?" in questions
+    assert "How does memory work?" in questions
+
+
+def test_doc_lacks_tags_column(conn, project_tree):
+    """scry__doc no longer has tags or seeded_questions columns."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(scry__doc)").fetchall()}
+    assert "tags" not in cols
+    assert "seeded_questions" not in cols
+    assert "implements" not in cols
+    assert "supersedes" not in cols
+
+
+# ---------------------------------------------------------------------------
+# Optional fields: implements, supersedes, depends_on → scry__rel
 # ---------------------------------------------------------------------------
 
 DOC_WITH_OPTIONALS = """\
@@ -165,10 +226,6 @@ kind: design
 summary: foo design
 status: active
 weight: 0.8
-rationale: ""
-applies: ""
-seeded_questions: []
-tags: []
 implements: spec.foo~bbbbbbbb
 supersedes: design.old~cccccccc
 depends_on:
@@ -188,42 +245,47 @@ weight: 0.5
 """
 
 
-def test_implements_supersedes_stored(conn, project_tree):
-    """implements and supersedes are stored in scry__doc."""
+def test_implements_supersedes_stored_in_rel(conn, project_tree):
+    """implements and supersedes are stored in scry__rel, not in scry__doc columns."""
     _write(project_tree / "agent" / "design" / "foo.md", DOC_WITH_OPTIONALS)
     surface(conn, project_root=project_tree)
-    row = conn.execute(
-        "SELECT implements, supersedes FROM scry__doc WHERE id = 'design.foo~aaaaaaaa'"
+
+    implements = conn.execute(
+        "SELECT to_id FROM scry__rel WHERE from_id = 'design.foo~aaaaaaaa' AND predicate = 'implements'"
     ).fetchone()
-    assert row is not None
-    assert row["implements"] == "spec.foo~bbbbbbbb"
-    assert row["supersedes"] == "design.old~cccccccc"
+    assert implements is not None
+    assert implements["to_id"] == "spec.foo~bbbbbbbb"
+
+    supersedes = conn.execute(
+        "SELECT to_id FROM scry__rel WHERE from_id = 'design.foo~aaaaaaaa' AND predicate = 'supersedes'"
+    ).fetchone()
+    assert supersedes is not None
+    assert supersedes["to_id"] == "design.old~cccccccc"
 
 
-def test_depends_on_populates_doc_relationship(conn, project_tree):
-    """depends_on fields are auto-indexed into doc_relationship on surface."""
+def test_depends_on_populates_scry_rel(conn, project_tree):
+    """depends_on fields are auto-indexed into scry__rel on surface."""
     _write(project_tree / "agent" / "design" / "foo.md", DOC_WITH_OPTIONALS)
     surface(conn, project_root=project_tree)
     rows = conn.execute(
-        "SELECT from_id, to_id, relationship FROM doc_relationship WHERE from_id = 'design.foo~aaaaaaaa'"
+        "SELECT from_id, to_id, predicate FROM scry__rel "
+        "WHERE from_id = 'design.foo~aaaaaaaa' AND predicate = 'depends_on'"
     ).fetchall()
     to_ids = {r["to_id"] for r in rows}
     assert "design.dep1~dddddddd" in to_ids
     assert "design.dep2~eeeeeeee" in to_ids
-    assert all(r["relationship"] == "depends_on" for r in rows)
 
 
 def test_depends_on_cleared_on_update(conn, project_tree):
-    """Removing a depends_on entry clears its doc_relationship row on re-index."""
+    """Removing a depends_on entry clears its scry__rel row on re-index."""
     f = project_tree / "agent" / "design" / "foo.md"
     _write(f, DOC_WITH_OPTIONALS)
     surface(conn, project_root=project_tree)
-    # Rewrite without dep2
     updated = DOC_WITH_OPTIONALS.replace("  - design.dep2~eeeeeeee\n", "")
     _write(f, updated)
     surface(conn, project_root=project_tree)
     rows = conn.execute(
-        "SELECT to_id FROM doc_relationship WHERE from_id = 'design.foo~aaaaaaaa'"
+        "SELECT to_id FROM scry__rel WHERE from_id = 'design.foo~aaaaaaaa' AND predicate = 'depends_on'"
     ).fetchall()
     to_ids = {r["to_id"] for r in rows}
     assert "design.dep1~dddddddd" in to_ids
@@ -231,8 +293,7 @@ def test_depends_on_cleared_on_update(conn, project_tree):
 
 
 def test_depends_on_cycle_produces_warning(conn, project_tree):
-    """A depends_on cycle is recorded in scry__warning, not silently dropped."""
-    # doc A depends_on doc B
+    """A depends_on cycle is recorded in scry__warning."""
     doc_a = """\
 <!-- @scry.entry
 id: design.a~11111111
@@ -244,7 +305,6 @@ depends_on:
   - design.b~22222222
 @scry.entry.end -->
 """
-    # doc B depends_on doc A (cycle)
     doc_b = """\
 <!-- @scry.entry
 id: design.b~22222222
@@ -262,17 +322,16 @@ depends_on:
     warnings = conn.execute(
         "SELECT message FROM scry__warning WHERE kind = 'depends_on_cycle'"
     ).fetchall()
-    # At least one cycle warning should appear (for whichever edge is inserted second).
     assert len(warnings) >= 1
 
 
 def test_depends_on_cleared_on_file_deletion(conn, project_tree):
-    """doc_relationship rows are cleaned up when the source file is deleted."""
+    """scry__rel rows are cleaned up when the source file is deleted."""
     _write(project_tree / "agent" / "design" / "foo.md", DOC_WITH_OPTIONALS)
     surface(conn, project_root=project_tree)
     handle_file_deletion(conn, "agent/design/foo.md")
     rows = conn.execute(
-        "SELECT to_id FROM doc_relationship WHERE from_id = 'design.foo~aaaaaaaa'"
+        "SELECT to_id FROM scry__rel WHERE from_id = 'design.foo~aaaaaaaa'"
     ).fetchall()
     assert len(rows) == 0
 
@@ -324,16 +383,25 @@ weight: 0.5
     path = project_tree / "agent" / "design" / "cyclic.md"
     _write(path, doc_self)
     surface(conn, project_root=project_tree)
-    # Warning should be present after first index.
     before = conn.execute(
         "SELECT id FROM scry__warning WHERE kind = 'depends_on_cycle' AND marker_id = 'design.self~44444444'"
     ).fetchall()
     assert len(before) == 1
-
-    # Fix the cycle and re-index.
     _write(path, fixed_doc)
     surface(conn, project_root=project_tree)
     after = conn.execute(
         "SELECT id FROM scry__warning WHERE kind = 'depends_on_cycle' AND marker_id = 'design.self~44444444'"
     ).fetchall()
     assert len(after) == 0, "stale cycle warning should be cleared after fix"
+
+
+# ---------------------------------------------------------------------------
+# scry__rel replaces doc_relationship — no doc_relationship table
+# ---------------------------------------------------------------------------
+
+def test_no_doc_relationship_table(conn):
+    """doc_relationship table must not exist in the new schema."""
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='doc_relationship'"
+    ).fetchone()
+    assert row is None

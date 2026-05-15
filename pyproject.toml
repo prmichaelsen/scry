@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "scry-mcp"
-version = "0.13.0"
+version = "0.12.0"
 description = "Marker-indexed SQL cache MCP server"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -52,6 +52,3 @@ scry = ["migrations/*.sql"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
-
-[tool.uv.sources]
-scry-parse = { path = "../scry-parse", editable = true }
