@@ -4,6 +4,21 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.2] - 2026-05-15
+
+### Changed
+
+- **Minimum scry-parse raised to 1.0.7** — FR11.4 strict array enforcement for
+  `depends_on`, `implements`, and `supersedes` fields landed in scry-parse 1.0.7.
+  Users on 1.0.6 would silently accept scalar values for these fields, producing
+  non-conformant behavior. Constraint updated from `>=1.0.6` to `>=1.0.7`.
+
+### Internal
+
+- 137/137 tests pass.
+
+---
+
 ## [0.15.1] - 2026-05-15
 
 ### Fixed
