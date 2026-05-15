@@ -4,6 +4,33 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.0] - 2026-05-15
+
+### Fixed
+
+- **`implements` and `supersedes` typed as `list[str]`** — `DocMarker` fields were
+  `str | None`; now `list[str]` (matching scry-parse >=1.0.6 which changed these
+  from scalar to array in its `_strict_array` validation). Added `_coerce_list_field`
+  shim so scry-mcp handles both 1.0.5 (str) and 1.0.6 (list[str]) at runtime.
+- **`_sync_relationships` array passthrough** — no longer wraps `marker.implements`
+  / `marker.supersedes` in `[...]`; passes the list directly to `_sync_rel_predicate`
+  so all elements (not just the stringified list) are inserted into `scry__rel`.
+- **Test fixture updated** — `DOC_WITH_OPTIONALS` uses YAML array syntax for
+  `implements` and `supersedes` (e.g. `implements:\n  - spec.foo~bbbbbbbb`) so it
+  works correctly with both scry-parse 1.0.5 and 1.0.6.
+
+### Changed
+
+- **`scry-parse` requirement bumped to `>=1.0.6`** — picks up array relationship
+  fields and FR11.4 strict-array enforcement for `implements`/`supersedes`.
+- **`uv.lock` updated** — scry-parse 1.0.5 → 1.0.6.
+
+### Internal
+
+- 135/135 tests pass.
+
+---
+
 ## [0.14.0] - 2026-05-15
 
 ### Fixed

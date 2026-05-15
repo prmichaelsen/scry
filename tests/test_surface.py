@@ -226,8 +226,10 @@ kind: design
 summary: foo design
 status: active
 weight: 0.8
-implements: spec.foo~bbbbbbbb
-supersedes: design.old~cccccccc
+implements:
+  - spec.foo~bbbbbbbb
+supersedes:
+  - design.old~cccccccc
 depends_on:
   - design.dep1~dddddddd
   - design.dep2~eeeeeeee
@@ -405,3 +407,75 @@ def test_no_doc_relationship_table(conn):
         "SELECT name FROM sqlite_master WHERE type='table' AND name='doc_relationship'"
     ).fetchone()
     assert row is None
+
+
+# ---------------------------------------------------------------------------
+# Code-construct exclusion (CR-1 / FR11.7 proxy tests)
+# scry-mcp delegates parsing to scry-parse; these tests verify the behavior
+# is preserved end-to-end through the surface/reindex pipeline.
+# ---------------------------------------------------------------------------
+
+FENCED_CODE_BLOCK_DOC = """\
+<!-- @scry.entry
+id: design.real~ffffffff
+kind: design
+summary: real marker
+status: active
+weight: 0.5
+@scry.entry.end -->
+
+Here is an example in a fenced code block that must NOT be indexed:
+
+```markdown
+<!-- @scry.entry
+id: design.phantom~aaaaaaaa
+kind: design
+summary: phantom — must not be indexed
+status: active
+@scry.entry.end -->
+```
+"""
+
+INLINE_CODE_DOC = """\
+<!-- @scry.entry
+id: design.inlinereal~bbbbbbbb
+kind: design
+summary: inline real marker
+status: active
+weight: 0.5
+@scry.entry.end -->
+
+The marker `<!-- @scry.entry id: design.inlinephantom~cccccccc ... @scry.entry.end -->` in inline code must NOT be indexed.
+"""
+
+
+def test_fenced_code_block_markers_not_indexed(conn, project_tree):
+    """Markers inside fenced code blocks are silently ignored (CR-1)."""
+    _write(project_tree / "agent" / "design" / "fenced.md", FENCED_CODE_BLOCK_DOC)
+    surface(conn, project_root=project_tree)
+
+    real = conn.execute(
+        "SELECT id FROM scry__doc WHERE id = 'design.real~ffffffff'"
+    ).fetchone()
+    assert real is not None, "real marker outside code block must be indexed"
+
+    phantom = conn.execute(
+        "SELECT id FROM scry__doc WHERE id = 'design.phantom~aaaaaaaa'"
+    ).fetchone()
+    assert phantom is None, "phantom marker inside fenced code block must NOT be indexed"
+
+
+def test_inline_code_markers_not_indexed(conn, project_tree):
+    """Markers inside inline code spans are silently ignored (CR-1)."""
+    _write(project_tree / "agent" / "design" / "inline.md", INLINE_CODE_DOC)
+    surface(conn, project_root=project_tree)
+
+    real = conn.execute(
+        "SELECT id FROM scry__doc WHERE id = 'design.inlinereal~bbbbbbbb'"
+    ).fetchone()
+    assert real is not None, "real marker must be indexed"
+
+    phantom = conn.execute(
+        "SELECT id FROM scry__doc WHERE id = 'design.inlinephantom~cccccccc'"
+    ).fetchone()
+    assert phantom is None, "phantom marker inside inline code must NOT be indexed"

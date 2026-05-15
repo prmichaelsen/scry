@@ -215,10 +215,8 @@ def _sync_rel_predicate(
 def _sync_relationships(conn: sqlite3.Connection, marker: DocMarker) -> list[str]:
     """Sync scry__rel rows for all relationship fields in the marker."""
     warnings = _sync_rel_predicate(conn, marker.id, "depends_on", marker.depends_on)
-    _sync_rel_predicate(conn, marker.id, "implements",
-                        [marker.implements] if marker.implements else [])
-    _sync_rel_predicate(conn, marker.id, "supersedes",
-                        [marker.supersedes] if marker.supersedes else [])
+    _sync_rel_predicate(conn, marker.id, "implements", marker.implements)
+    _sync_rel_predicate(conn, marker.id, "supersedes", marker.supersedes)
     return warnings
 
 

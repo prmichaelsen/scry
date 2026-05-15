@@ -64,9 +64,11 @@ class DocMarker:
     applies: str | None = None
     seeded_questions: list[str] = field(default_factory=list)
     # Truly-optional spec fields (scry-spec v1.0 FR_OPT1–FR_OPT3)
+    # All three are arrays per scry-parse >=1.0.6 (implements/supersedes changed
+    # from str to list[str] in 1.0.6 to support multiple targets).
     depends_on: list[str] = field(default_factory=list)
-    implements: str | None = None
-    supersedes: str | None = None
+    implements: list[str] = field(default_factory=list)
+    supersedes: list[str] = field(default_factory=list)
     raw_body: str = ""
     span: tuple[int, int] = (0, 0)
 
@@ -101,6 +103,22 @@ class ParseResult:
 
 def content_hash(raw_body: str) -> str:
     return hashlib.sha256(raw_body.encode()).hexdigest()[:16]
+
+
+def _coerce_list_field(value: Any) -> list[str]:
+    """Coerce scry-parse relationship field to list[str].
+
+    scry-parse <=1.0.5 returns str for implements/supersedes; >=1.0.6 returns list[str].
+    This shim handles both so scry-mcp works across the version boundary.
+    """
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(v) for v in value if v is not None]
+    if isinstance(value, str):
+        s = value.strip()
+        return [s] if s else []
+    return []
 
 
 def _coerce_text(value: Any) -> str | None:
@@ -158,8 +176,8 @@ def parse_markers(content: str, file: str = "") -> ParseResult:
             applies=_coerce_text(e.applies),
             seeded_questions=list(e.seeded_questions) if e.seeded_questions else [],
             depends_on=list(e.depends_on) if e.depends_on else [],
-            implements=_coerce_text(e.implements) if e.implements else None,
-            supersedes=_coerce_text(e.supersedes) if e.supersedes else None,
+            implements=_coerce_list_field(e.implements),
+            supersedes=_coerce_list_field(e.supersedes),
             raw_body=raw,
             span=e.span,
         ))
