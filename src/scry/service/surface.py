@@ -605,30 +605,77 @@ def surface(
     conn: sqlite3.Connection,
     project_root: Path | None = None,
     force: bool = False,
+    path: str | None = None,
 ) -> dict[str, Any]:
-    """Walk the project, reindex every file, then flag/cleanup missing rows."""
+    """Walk the project (or a scoped path), reindex files, then flag/cleanup missing rows.
+
+    Args:
+        conn: Open SQLite connection.
+        project_root: Project root override (defaults to config value).
+        force: If True, hard-deletes records whose files no longer exist
+               (within the scope when path is set).
+        path: Optional scope — relative to project root.
+              None  → full corpus walk (existing behaviour).
+              <file> → re-index exactly that one file.
+              <dir>  → re-index every file under that directory, recursively.
+              Raises ValueError if path does not exist on disk.
+    """
     root = project_root or get_project_root()
+
+    # Validate and resolve scoped path.
+    scope_is_file: bool | None = None
+    abs_scope: Path | None = None
+    if path is not None:
+        abs_scope = root / path
+        if not abs_scope.exists():
+            raise ValueError(f"path does not exist: {path!r}")
+        scope_is_file = abs_scope.is_file()
+
     visited_paths: set[str] = set()
     counts = {"files_scanned": 0, "markers_indexed": 0}
 
-    # Warnings are derived state — wipe and rebuild from the live walk.
-    conn.execute("DELETE FROM scry__warning")
+    if path is None:
+        # Full walk: warnings are derived state — wipe and rebuild from scratch.
+        conn.execute("DELETE FROM scry__warning")
+        files_iter: Iterable[Path] = _walk_project(root)
+    elif scope_is_file:
+        # Single file: _record_warnings in reindex_file handles per-file cleanup.
+        files_iter = [abs_scope]  # type: ignore[assignment]
+    else:
+        # Directory subtree.
+        assert abs_scope is not None
+        files_iter = _walk_project(abs_scope)
 
-    for path in _walk_project(root):
-        rel = str(path.relative_to(root))
+    for fp in files_iter:
+        rel = str(fp.relative_to(root))
         visited_paths.add(rel)
         counts["files_scanned"] += 1
-        parsed = reindex_file(conn, path, root)
+        parsed = reindex_file(conn, fp, root)
         counts["markers_indexed"] += (
             len(parsed.docs) + len(parsed.anchors) + len(parsed.binds)
         )
 
     # Flag any DB record whose current_path is not on disk.
+    # When path is set, only consider docs within the scope.
     flagged = []
-    rows = conn.execute(
-        "SELECT id, current_path FROM scry__doc WHERE current_path IS NOT NULL"
-    ).fetchall()
-    for r in rows:
+    if path is None:
+        candidate_rows = conn.execute(
+            "SELECT id, current_path FROM scry__doc WHERE current_path IS NOT NULL"
+        ).fetchall()
+    elif scope_is_file:
+        candidate_rows = conn.execute(
+            "SELECT id, current_path FROM scry__doc WHERE current_path = ?",
+            (path,),
+        ).fetchall()
+    else:
+        # Directory: match exact path (unlikely) or anything under it.
+        candidate_rows = conn.execute(
+            "SELECT id, current_path FROM scry__doc "
+            "WHERE current_path = ? OR current_path LIKE ?",
+            (path, path + "/%"),
+        ).fetchall()
+
+    for r in candidate_rows:
         cp = r["current_path"]
         if cp and cp not in visited_paths:
             conn.execute(
@@ -639,10 +686,22 @@ def surface(
 
     deleted: list[dict[str, Any]] = []
     if force:
-        rows = conn.execute(
-            "SELECT id FROM scry__doc WHERE missing_since IS NOT NULL"
-        ).fetchall()
-        for r in rows:
+        if path is None:
+            force_rows = conn.execute(
+                "SELECT id FROM scry__doc WHERE missing_since IS NOT NULL"
+            ).fetchall()
+        elif scope_is_file:
+            force_rows = conn.execute(
+                "SELECT id FROM scry__doc WHERE missing_since IS NOT NULL AND current_path = ?",
+                (path,),
+            ).fetchall()
+        else:
+            force_rows = conn.execute(
+                "SELECT id FROM scry__doc "
+                "WHERE missing_since IS NOT NULL AND (current_path = ? OR current_path LIKE ?)",
+                (path, path + "/%"),
+            ).fetchall()
+        for r in force_rows:
             conn.execute("DELETE FROM scry__doc WHERE id = ?", (r["id"],))
             deleted.append({"table": "scry__doc", "id": r["id"]})
 
@@ -659,6 +718,7 @@ def surface(
     ]
 
     return {
+        "scope": path,
         "files_scanned": counts["files_scanned"],
         "markers_indexed": counts["markers_indexed"],
         "flagged_missing": flagged,

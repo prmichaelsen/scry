@@ -479,3 +479,140 @@ def test_inline_code_markers_not_indexed(conn, project_tree):
         "SELECT id FROM scry__doc WHERE id = 'design.inlinephantom~cccccccc'"
     ).fetchone()
     assert phantom is None, "phantom marker inside inline code must NOT be indexed"
+
+
+# ---------------------------------------------------------------------------
+# Scoped path parameter tests (originator spec: 2026-05-15T09-27-46Z)
+# ---------------------------------------------------------------------------
+
+DOC_OUTSIDE = """\
+<!-- @scry.entry
+id: task.outside~aaaaaaaa
+kind: task
+summary: outside marker
+status: active
+weight: 0.5
+@scry.entry.end -->
+"""
+
+DOC_INSIDE = """\
+<!-- @scry.entry
+id: task.inside~bbbbbbbb
+kind: task
+summary: inside marker
+status: active
+weight: 0.5
+@scry.entry.end -->
+"""
+
+
+def test_surface_full_walk_unchanged(conn, project_tree):
+    """path=None behaves exactly as before (full corpus walk)."""
+    _write(project_tree / "agent" / "tasks" / "ex.md", DOC_BLOCK)
+    out = surface(conn, project_root=project_tree, path=None)
+    assert out["scope"] is None
+    assert out["files_scanned"] >= 1
+    rows = conn.execute("SELECT id FROM scry__doc WHERE id = 'task.example~12345678'").fetchall()
+    assert len(rows) == 1
+
+
+def test_surface_single_file(conn, project_tree):
+    """path=<file> re-indexes exactly that one file; counts reflect one file."""
+    _write(project_tree / "agent" / "tasks" / "inside.md", DOC_INSIDE)
+    _write(project_tree / "agent" / "tasks" / "outside.md", DOC_OUTSIDE)
+    # First, full surface to populate both.
+    surface(conn, project_root=project_tree)
+    # Now surface only the inside file.
+    out = surface(conn, project_root=project_tree, path="agent/tasks/inside.md")
+    assert out["scope"] == "agent/tasks/inside.md"
+    assert out["files_scanned"] == 1
+    # Both docs still present (scoped surface does not disturb outside doc).
+    inside = conn.execute("SELECT id FROM scry__doc WHERE id = 'task.inside~bbbbbbbb'").fetchone()
+    outside = conn.execute("SELECT id FROM scry__doc WHERE id = 'task.outside~aaaaaaaa'").fetchone()
+    assert inside is not None
+    assert outside is not None
+
+
+def test_surface_directory_recursive(conn, project_tree):
+    """path=<dir> re-indexes every file under that directory, recursively."""
+    subtree = project_tree / "agent" / "subtree"
+    subtree.mkdir(parents=True, exist_ok=True)
+    _write(subtree / "a.md", DOC_INSIDE)
+    _write(project_tree / "agent" / "tasks" / "b.md", DOC_OUTSIDE)
+    out = surface(conn, project_root=project_tree, path="agent/subtree")
+    assert out["scope"] == "agent/subtree"
+    assert out["files_scanned"] >= 1
+    inside = conn.execute("SELECT id FROM scry__doc WHERE id = 'task.inside~bbbbbbbb'").fetchone()
+    assert inside is not None
+
+
+def test_surface_scoped_missing(conn, project_tree):
+    """A doc whose file is gone OUTSIDE the scope is NOT flagged_missing;
+    one INSIDE the scope IS."""
+    inside_path = project_tree / "agent" / "tasks" / "inside.md"
+    outside_path = project_tree / "agent" / "tasks" / "outside.md"
+    _write(inside_path, DOC_INSIDE)
+    _write(outside_path, DOC_OUTSIDE)
+    surface(conn, project_root=project_tree)
+    # Delete both files.
+    inside_path.unlink()
+    outside_path.unlink()
+    # Scope surface to the directory — both files are in scope.
+    out = surface(conn, project_root=project_tree, path="agent/tasks")
+    flagged_ids = {f["id"] for f in out["flagged_missing"]}
+    assert "task.inside~bbbbbbbb" in flagged_ids
+    assert "task.outside~aaaaaaaa" in flagged_ids
+
+    # Now restore only the outside file, surface only a different path.
+    _write(outside_path, DOC_OUTSIDE)
+    _write(inside_path, DOC_INSIDE)
+    surface(conn, project_root=project_tree)
+    inside_path.unlink()
+    # Surface a sibling directory (no files there) — inside is outside the scope.
+    sibling = project_tree / "agent" / "other"
+    sibling.mkdir(parents=True, exist_ok=True)
+    out = surface(conn, project_root=project_tree, path="agent/other")
+    flagged_ids = {f["id"] for f in out["flagged_missing"]}
+    assert "task.inside~bbbbbbbb" not in flagged_ids, (
+        "doc outside the scoped path must NOT be flagged missing"
+    )
+
+
+def test_surface_scoped_force(conn, project_tree):
+    """force=True + path hard-deletes only within the scope."""
+    # Put inside doc in its own subtree, outside in a sibling subtree.
+    inside_dir = project_tree / "agent" / "inside-subtree"
+    outside_dir = project_tree / "agent" / "outside-subtree"
+    inside_path = inside_dir / "inside.md"
+    outside_path = outside_dir / "outside.md"
+    _write(inside_path, DOC_INSIDE)
+    _write(outside_path, DOC_OUTSIDE)
+    surface(conn, project_root=project_tree)
+    # Delete the inside file so it becomes missing.
+    inside_path.unlink()
+    # Full surface to flag inside as missing (outside is still present).
+    surface(conn, project_root=project_tree)
+    missing_row = conn.execute(
+        "SELECT missing_since FROM scry__doc WHERE id = 'task.inside~bbbbbbbb'"
+    ).fetchone()
+    assert missing_row is not None and missing_row["missing_since"] is not None
+    # Force-delete scoped to the inside subtree only.
+    # The directory still exists even though the file inside was deleted.
+    out = surface(
+        conn, project_root=project_tree,
+        path="agent/inside-subtree", force=True,
+    )
+    deleted_ids = {d["id"] for d in out["force_deleted"]}
+    assert "task.inside~bbbbbbbb" in deleted_ids
+    # Outside doc must still exist (not in scope).
+    outside_row = conn.execute(
+        "SELECT id FROM scry__doc WHERE id = 'task.outside~aaaaaaaa'"
+    ).fetchone()
+    assert outside_row is not None
+
+
+def test_surface_nonexistent_path(conn, project_tree):
+    """A path that does not exist returns a clear error, not a silent no-op."""
+    import pytest
+    with pytest.raises(ValueError, match="does not exist"):
+        surface(conn, project_root=project_tree, path="nonexistent/path/here.md")

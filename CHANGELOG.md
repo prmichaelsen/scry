@@ -4,6 +4,31 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.4] - 2026-05-15
+
+### Added
+
+- **`path` parameter on `scry_surface`** — optional scope for targeted re-indexing.
+  - `path=None` (default) — full corpus walk, unchanged behavior.
+  - `path=<file>` — re-index exactly one file; counts reflect that one file.
+  - `path=<directory>` — re-index every file under that directory, recursively.
+  - Scoped reconciliation: `flagged_missing`, `misplaced_doc` warnings, and
+    `force=True` hard-deletes are all scoped to the path. Docs outside the scope
+    are never flagged as missing by a scoped surface call.
+  - Non-existent path returns a clear `{"error": "...", "scope": path}` response
+    (via the MCP tool wrapper) or raises `ValueError` (service layer).
+  - Result shape gains a `scope` field echoing the `path` argument (`null` for
+    a full walk).
+
+### Internal
+
+- 143/143 tests pass (6 new: `test_surface_full_walk_unchanged`,
+  `test_surface_single_file`, `test_surface_directory_recursive`,
+  `test_surface_scoped_missing`, `test_surface_scoped_force`,
+  `test_surface_nonexistent_path`).
+
+---
+
 ## [0.15.3] - 2026-05-15
 
 ### Fixed
