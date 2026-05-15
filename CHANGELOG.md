@@ -4,6 +4,24 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.1] - 2026-05-15
+
+### Fixed
+
+- **Legacy FTS trigger cleanup on startup** — `run_migrations()` now calls
+  `_cleanup_legacy_triggers()` which drops six triggers (`scry__doc_tag_ai/ad`,
+  `scry__doc_sq_ai/ad`, `scry__anchor_sq_ai/ad`) that were created by pre-0.12.0
+  schema versions. These triggers used content-backed FTS5 delete syntax on standard
+  FTS5 tables, causing `sqlite3.OperationalError: SQL logic error` when deleting rows
+  from `scry__doc_tag` or `scry__doc_sq`. The cleanup is idempotent (`DROP TRIGGER IF
+  EXISTS`) so it is safe to run on fresh databases.
+
+### Internal
+
+- 137/137 tests pass.
+
+---
+
 ## [0.15.0] - 2026-05-15
 
 ### Fixed
