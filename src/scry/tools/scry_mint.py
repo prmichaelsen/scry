@@ -29,10 +29,16 @@ async def scry_mint(kind: str, prefix: str) -> str:
     Returns JSON with: id, schema (marker_open/close + per-field instructions),
     and optionally tier1_collisions + tier2_neighbors when they exist.
 
-    Field quality matters:
-      summary   — dense, keyword-rich, no filler. "JWT auth middleware, token validation, refresh flow" not "This describes authentication"
-      rationale — consequence of NOT reading. "missing this causes auth bypass bugs" not "this is important"
-      applies   — comma-separated activities. "modifying auth, adding protected endpoints" not "when working on auth"
+    Field quality matters (FR4.A authoring guidance):
+      summary   — prose sentences + 'Also:' keyword cluster at the end.
+                  "JWT auth middleware, validates bearer tokens. Also: JWT, bearer-token, auth-guard, refresh-flow"
+      tags      — carry both classifier and bare-keyword forms.
+                  ["topic:auth", "auth", "scope:runtime", "runtime"]
+      rationale — consequence of NOT reading. "missing causes auth bypass bugs" not "this is important"
+      applies   — verb-shaped triggers (actions, not topics).
+                  "modifying auth, adding protected endpoints" not "when working on auth"
+      seeded_questions — include both full questions AND fragment queries.
+                  ["What is the JWT refresh flow?", "JWT refresh token implementation"]
     """
     conn = get_db()
     try:

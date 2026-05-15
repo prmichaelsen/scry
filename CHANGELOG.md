@@ -4,6 +4,35 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.6] - 2026-05-15
+
+### Fixed
+
+- **MCP connection timeout on startup** — `ScryWatcher.start()` was running the
+  cold scan synchronously before `mcp.run()` was called. On large projects with
+  many symlinked sub-projects and `scry__file` body indexing, the scan takes 30+
+  seconds, causing every MCP client to time out on the initialize handshake. Cold
+  scan now runs in a background daemon thread so `mcp.run()` starts accepting
+  connections immediately.
+
+### Added
+
+- **MCP handshake smoke test** (`tests/test_server_handshake.py`) — starts
+  `python -m scry` in a subprocess, sends an MCP `initialize` request, and asserts
+  a valid response arrives within 5 s. Catches the startup-blocking regression
+  that shipped clean through prior test suites.
+
+- **Improved `scry_mint` field guidance** — `scry_mint` and `scry_mint_with_check`
+  now return authoring instructions aligned with FR4.A (wake.md Entry 008):
+  summary `Also:` keyword cluster, tag classifier+bare-keyword forms, verb-shaped
+  `applies` triggers, fragment-query `seeded_questions`.
+
+### Internal
+
+- 144/144 tests pass.
+
+---
+
 ## [0.15.5] - 2026-05-15
 
 ### Changed

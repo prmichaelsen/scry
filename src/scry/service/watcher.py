@@ -166,19 +166,27 @@ class ScryWatcher:
         self._stopped = False
         # DR11: symlink observers — maps symlink_abs_path -> (resolved_target_str, Observer)
         self._symlink_observers: dict[str, tuple[str, Observer]] = {}
+        # Background cold-scan thread (set by start(); join in tests to await completion)
+        self.cold_scan_thread: Optional[threading.Thread] = None
 
     def start(self, run_cold_scan: bool = True) -> None:
         self.is_primary = self.lock.claim()
         if not self.is_primary:
             return
-        if run_cold_scan:
-            self.cold_scan()
         self._observer = Observer()
         self._observer.schedule(_Handler(self), str(self.project_root), recursive=True)
         self._observer.daemon = True
         self._observer.start()
         # DR11: schedule observers for any existing symlinks under agent/projects/
         self._setup_existing_symlink_observers()
+        if run_cold_scan:
+            # Run cold scan in a background thread so the MCP server can start
+            # accepting connections immediately. Large projects (many symlinked
+            # sub-projects + scry__file body indexing) can take 30+ seconds to
+            # scan, which would otherwise exceed the MCP handshake timeout.
+            t = threading.Thread(target=self.cold_scan, daemon=True, name="scry-cold-scan")
+            t.start()
+            self.cold_scan_thread = t
 
     def _setup_existing_symlink_observers(self) -> None:
         """DR11: At startup, schedule observers for any existing directory symlinks."""

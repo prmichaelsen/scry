@@ -100,7 +100,9 @@ def test_watcher_smoke_indexes_existing_file(tmp_path: Path):
     w = ScryWatcher(project_root=project, db_path=db_path)
     try:
         w.start()
-        # Cold scan happens synchronously inside start(); verify.
+        # Cold scan runs in background thread; wait for it to finish before asserting.
+        if w.cold_scan_thread is not None:
+            w.cold_scan_thread.join(timeout=30)
         c = sqlite3.connect(str(db_path))
         c.row_factory = sqlite3.Row
         row = c.execute("SELECT id FROM scry__doc WHERE id='task.smoke~aaaaaaaa'").fetchone()

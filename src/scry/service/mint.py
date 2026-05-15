@@ -64,13 +64,29 @@ def _marker_schema(kind: str, ident: str) -> dict[str, Any]:
                     "one of: design, pattern, spec, lesson, internal, "
                     "task, milestone, report, audit, research, code"
                 ),
-                "summary": "1-2 sentence description (use `>` for folded scalar)",
+                "summary": (
+                    "Lead with prose, end with 'Also:' keyword cluster. "
+                    "E.g. 'JWT auth middleware, validates bearer tokens on protected routes. "
+                    "Also: JWT, bearer-token, auth-guard, refresh-flow, AuthMiddleware'"
+                ),
                 "status": "one of: draft, active, deprecated (custom values allowed)",
                 "weight": "0.0-1.0 importance score",
-                "tags": "YAML list, e.g. [\"scope:auth\", \"topic:security\"]",
-                "rationale": "why this doc matters (folded scalar OK)",
-                "applies": "comma-separated triggers (when to read this)",
-                "seeded_questions": "YAML list of starter questions",
+                "tags": (
+                    "YAML list; carry both classifier and bare-keyword forms. "
+                    "E.g. [\"topic:auth\", \"auth\", \"scope:runtime\", \"runtime\"]"
+                ),
+                "rationale": (
+                    "Consequence of NOT reading this doc. "
+                    "E.g. 'missing causes auth bypass bugs' not 'this is important'"
+                ),
+                "applies": (
+                    "Comma-separated verb-shaped triggers (actions, not topics). "
+                    "E.g. 'modifying auth, adding protected endpoints, reviewing JWT patterns'"
+                ),
+                "seeded_questions": (
+                    "YAML list; include both full questions and fragment queries. "
+                    "E.g. ['What is the JWT refresh flow?', 'JWT refresh token implementation']"
+                ),
             },
             "suggested_path": f"agent/docs/{ident}.md",
         }
