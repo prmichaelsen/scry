@@ -4,6 +4,36 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.7] - 2026-05-15
+
+### Fixed
+
+- **MCP reconnect failure (-32000 CONNECTION_CLOSED)** — On projects where
+  `agent/projects/` contained a symlink back to the project root itself (circular
+  self-reference), `_setup_existing_symlink_observers()` would start a recursive
+  watchdog Observer on the same tree. inotify followed the circular path and
+  immediately exhausted `max_user_watches`, raising `OSError: inotify watch limit
+  reached`. This unhandled exception propagated through `watcher.start()` and
+  `run_server()`, crashing the process before `mcp.run()` was reached. The MCP
+  client saw `CONNECTION_CLOSED` (-32000).
+
+  Two-part fix:
+  1. `_schedule_for_symlink` now detects when a symlink's resolved target is the
+     project root or an ancestor of it, and silently skips it (already watched by
+     the main Observer).
+  2. `obs.start()` is wrapped in `try/except OSError` with a graceful degradation
+     warning, so large-project symlinks that would exceed the inotify watch limit
+     log a warning and continue rather than crashing the server.
+
+- **Main observer crash hardening** — `Observer.start()` in `watcher.start()` is
+  also now wrapped with the same `OSError` guard.
+
+### Added
+
+- **Regression test** (`test_circular_symlink_does_not_crash_watcher`) — verifies
+  that a project with a circular `agent/projects/self → project_root` symlink
+  starts cleanly without raising.
+
 ## [0.15.6] - 2026-05-15
 
 ### Fixed

@@ -176,7 +176,15 @@ class ScryWatcher:
         self._observer = Observer()
         self._observer.schedule(_Handler(self), str(self.project_root), recursive=True)
         self._observer.daemon = True
-        self._observer.start()
+        try:
+            self._observer.start()
+        except OSError as exc:
+            print(
+                f"[scry watcher] WARNING: could not start main observer: {exc}. "
+                "Live file watching is disabled.",
+                file=sys.stderr,
+            )
+            self._observer = None
         # DR11: schedule observers for any existing symlinks under agent/projects/
         self._setup_existing_symlink_observers()
         if run_cold_scan:
@@ -198,21 +206,50 @@ class ScryWatcher:
                 self._schedule_for_symlink(str(entry))
 
     def _schedule_for_symlink(self, symlink_path: str) -> None:
-        """DR11: Schedule a watchdog Observer for a directory symlink's resolved target."""
+        """DR11: Schedule a watchdog Observer for a directory symlink's resolved target.
+
+        Guards against two failure modes:
+        1. Circular self-reference (e.g. agent/projects/reflection → project root).
+           The target would already be covered by the main observer, and a recursive
+           inotify walk would loop indefinitely, exhausting the watch limit instantly.
+        2. OSError (e.g. inotify watch limit reached on a large project tree).
+           Log a warning and degrade gracefully — cold scan still indexes files.
+        """
         if symlink_path in self._symlink_observers:
             return  # already watching
         p = Path(symlink_path)
         if not p.is_symlink() or not p.is_dir():
             return
         try:
-            real_target = str(p.resolve())
+            real_target_path = Path(symlink_path).resolve()
         except OSError:
             return
+
+        # Skip if the target IS the project root or an ancestor of it — already
+        # watched by the main observer, and the recursive inotify walk would loop.
+        try:
+            if real_target_path == self.project_root or self.project_root.is_relative_to(real_target_path):
+                return
+        except (ValueError, OSError):
+            pass
+
         obs = Observer()
-        obs.schedule(_Handler(self), real_target, recursive=True)
+        obs.schedule(_Handler(self), str(real_target_path), recursive=True)
         obs.daemon = True
-        obs.start()
-        self._symlink_observers[symlink_path] = (real_target, obs)
+        try:
+            obs.start()
+        except OSError as exc:
+            # inotify watch limit or other OS resource exhaustion. Degrade gracefully:
+            # log a warning and skip this symlink observer. Live file-change events
+            # for this symlink will be missed, but the cold scan still indexes files.
+            print(
+                f"[scry watcher] WARNING: could not start observer for {symlink_path!r}: {exc}. "
+                "Live updates disabled for this symlink. "
+                "To fix: echo fs.inotify.max_user_watches=524288 | sudo tee /etc/sysctl.d/99-inotify.conf && sudo sysctl -p",
+                file=sys.stderr,
+            )
+            return
+        self._symlink_observers[symlink_path] = (str(real_target_path), obs)
 
     def _unschedule_for_symlink(self, symlink_path: str) -> None:
         """DR11: Stop observer for a deleted symlink and flush its DB rows."""

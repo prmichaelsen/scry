@@ -12,6 +12,44 @@ import pytest
 from scry.service.watcher import LockFile, _Debouncer, ScryWatcher
 
 
+def test_circular_symlink_does_not_crash_watcher(tmp_path: Path):
+    """Regression: agent/projects/<name> → project_root creates a circular symlink.
+
+    Before the fix, _schedule_for_symlink would start a recursive watchdog Observer
+    on the project root, which inotify would try to follow infinitely, immediately
+    exhausting max_user_watches and raising OSError — crashing the whole server
+    before mcp.run() was reached. The client saw -32000 CONNECTION_CLOSED.
+
+    After the fix: circular targets are detected and silently skipped.
+    """
+    project = tmp_path / "proj"
+    (project / "agent" / "projects").mkdir(parents=True)
+    db_path = project / "agent" / "drivers" / "@local" / "scry" / "data" / "project.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    from scry.service.migration import run_migrations
+    import sqlite3
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    run_migrations(conn=conn)
+    conn.close()
+
+    # Create the circular self-reference symlink: agent/projects/proj → project root
+    circular = project / "agent" / "projects" / "self"
+    circular.symlink_to(project)  # points back to project root
+
+    w = ScryWatcher(project_root=project, db_path=db_path)
+    try:
+        # Must not raise — circular symlink should be silently skipped
+        w.start(run_cold_scan=False)
+        # The circular symlink must NOT be in the symlink observers dict
+        assert str(circular) not in w._symlink_observers, (
+            "Circular symlink should have been skipped, not added to observers"
+        )
+    finally:
+        w.stop()
+
+
 def test_lockfile_claim_and_release(tmp_path: Path):
     lock = LockFile(tmp_path / "lock")
     assert lock.claim() is True
