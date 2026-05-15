@@ -4,6 +4,37 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.8] - 2026-05-15
+
+### Fixed
+
+- **scry__file bloat causing DB corruption** — on projects with many
+  symlinked sub-projects, `scry__file` body storage grew unbounded (74 MB
+  observed), making WAL checkpoints risky under concurrent write load and
+  leading to SQLite corruption ("file is not a database").
+
+  Three-part fix to the body-indexing exclusion policy:
+
+  1. **`.json` extension excluded** — package manifests, API responses, and
+     preview caches are machine-generated; indexing their bodies adds no FTS
+     value and adds significant bulk (1.6 MB of JSON in the affected project).
+
+  2. **Dependency lock files excluded by filename** — `pnpm-lock.yaml`,
+     `package-lock.json`, `yarn.lock`, `bun.lockb`, `Cargo.lock`,
+     `poetry.lock`, `Gemfile.lock`, `composer.lock`, `pdm.lock`, `uv.lock`.
+     Lock files were the single largest body contributors (100-230 KB each,
+     many per project).
+
+  3. **`agent/runtime/wakes/` path segment excluded** — wake system-prompt
+     files are ephemeral (regenerated every wake), unique per session, and
+     not useful for FTS. Excluding the path segment prevents constant re-index
+     churn on frequently-changing files.
+
+  4. **`_FILE_MAX_BYTES` reduced from 1 MB to 128 KB** — sufficient for any
+     real source file; prevents generated TypeScript declarations and other
+     large machine-generated files from slipping through the filename/extension
+     filters.
+
 ## [0.15.7] - 2026-05-15
 
 ### Fixed

@@ -28,17 +28,38 @@ from scry.domain.markers import (
 _FILE_EXCLUDED_EXTENSIONS = frozenset({
     ".jsonl", ".lock", ".timestamp", ".pyc", ".png", ".jpg", ".jpeg",
     ".webp", ".svg", ".so", ".pyi", ".f90", ".ipynb", ".parquet",
+    # JSON files are rarely useful for FTS — package manifests, API
+    # responses, and lock files dominate; exclude to control DB size.
+    ".json",
 })
 
 _FILE_EXCLUDED_PATH_SEGMENTS = frozenset({
     "node_modules", ".venv", ".git", "agent/drivers", "dist", "build", "__pycache__",
+    # Ephemeral wake artifacts (system prompts, wakes/) change every session
+    # and balloon scry__file without any search value.
+    "agent/runtime/wakes",
 })
 
 _FILE_EXCLUDED_FILENAMES = frozenset({
     "LICENSE", "COPYING", "NOTICE",
+    # Dependency lock files: large, machine-generated, no search value.
+    "pnpm-lock.yaml",
+    "package-lock.json",
+    "yarn.lock",
+    "bun.lockb",
+    "Cargo.lock",
+    "poetry.lock",
+    "Gemfile.lock",
+    "composer.lock",
+    "pdm.lock",
+    "uv.lock",
 })
 
-_FILE_MAX_BYTES = 1 * 1024 * 1024   # 1 MB
+# 128 KB — enough to index any real source file; prevents lock files,
+# minified JS, and generated TypeScript declarations from inflating
+# the DB. (Was 1 MB; dropped because 74 MB DB corruption correlated
+# with unbounded body storage on large symlinked projects.)
+_FILE_MAX_BYTES = 128 * 1024   # 128 KB
 _FILE_MAX_LINE_CHARS = 10_000
 
 
