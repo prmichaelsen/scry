@@ -25,9 +25,15 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   fields and FR11.4 strict-array enforcement for `implements`/`supersedes`.
 - **`uv.lock` updated** — scry-parse 1.0.5 → 1.0.6.
 
+### Added
+
+- **Code-construct exclusion integration tests** — `test_fenced_code_block_markers_not_indexed`
+  and `test_inline_code_markers_not_indexed` verify that markers inside fenced code blocks
+  and inline code spans are not indexed by scry-mcp's surface/reindex pipeline (CR-1 proxy).
+
 ### Internal
 
-- 135/135 tests pass.
+- 137/137 tests pass.
 
 ---
 
