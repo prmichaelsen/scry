@@ -4,6 +4,29 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.15.9] - 2026-05-16
+
+### Fixed
+
+- **scry_sql tool description out of sync with live schema** — the `Key
+  tables:` block in the `scry_sql` docstring was missing columns that
+  exist in the actual DB, and had no column listing for `scry__warning`.
+  Six divergences fixed:
+
+  1. `scry__anchor`: added `content_hash`, `created_at`, `updated_at`
+  2. `scry__bind`: added `content_hash`, `created_at`, `updated_at`
+  3. `scry__file`: added `last_modified`
+  4. `scry__warning`: added full column list (`id, kind, marker_kind,
+     marker_id, file_path, message, detected_at`) — previously had only
+     a prose note with no queryable column info
+  5. `scry__doc_tag_fts`: added explicit column list `(tag, doc_id
+     UNINDEXED)` — agents need to know `doc_id` is available for joins
+  6. `scry__doc_seeded_question_fts`: added explicit column list
+     `(question, doc_id UNINDEXED)`
+
+  The description is the agent-facing schema contract. A stale
+  description causes silent query failures without any DB error.
+
 ## [0.15.8] - 2026-05-15
 
 ### Fixed
