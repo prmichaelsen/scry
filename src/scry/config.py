@@ -48,7 +48,15 @@ def get_driver_scripts_dir(project_root: Path | None = None) -> Path:
 def get_db(db_path: Path | None = None) -> sqlite3.Connection:
     path = db_path or get_db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path), timeout=10)
+    # timeout=30: Python-level busy handler (seconds).
+    # PRAGMA busy_timeout: SQLite C-level timeout (milliseconds).
+    # Both are set because WAL write-lock acquisition can go through
+    # either path depending on SQLite build and platform. Under
+    # concurrent wake load (3-5 scry serve processes sharing one DB),
+    # 10 s was too short for write-lock contention — 30 s covers the
+    # observed worst case without masking actual errors.
+    conn = sqlite3.connect(str(path), timeout=30)
     conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 30000")
     conn.row_factory = sqlite3.Row
     return conn
