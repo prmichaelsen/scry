@@ -34,7 +34,12 @@ async def scry_mint(kind: str, prefix: str) -> str:
                   "JWT auth middleware, validates bearer tokens. Also: JWT, bearer-token, auth-guard, refresh-flow"
       tags      — carry both classifier and bare-keyword forms.
                   ["topic:auth", "auth", "scope:runtime", "runtime"]
-      rationale — consequence of NOT reading. "missing causes auth bypass bugs" not "this is important"
+      rationale — Why this artifact exists: the problem it solves or the role it fills.
+                  Not why you would search for it, not a findability claim, not its importance.
+                  Lesson: "prevents re-introducing the auth bypass fixed in PR 412".
+                  Design: "centralizes token checks so endpoints do not each re-implement them".
+                  Track wake: "owns the reflect-mcp build-to-PyPI path".
+                  Bad: "invisible to scry without this", "this is important".
       applies   — verb-shaped triggers (actions, not topics).
                   "modifying auth, adding protected endpoints" not "when working on auth"
       seeded_questions — include both full questions AND fragment queries.

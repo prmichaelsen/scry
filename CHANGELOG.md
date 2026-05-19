@@ -4,6 +4,30 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1] - 2026-05-19
+
+### Changed
+
+- **`scry_mint` `rationale` gloss aligned with scry-spec v1.0.7** —
+  both the MCP tool-description docstring and the per-field
+  instruction string returned by a `scry_mint` call now describe
+  `rationale` as *why this artifact exists* (the problem it solves
+  or role it fills), not as a consequence-of-not-reading or
+  findability claim. The prior gloss ("consequence of NOT reading")
+  silently misfired on `design`, `spec`, and track-wake markers and
+  produced authoring errors in the field. New gloss carries positive
+  framing + explicit findability exclusion + lesson-case
+  clarification. No parser or DB schema change.
+
+## [0.16.0] - 2026-05-17
+
+### Fixed
+
+- **Transient SQLite disk-I/O errors under concurrent write load** —
+  bumped `busy_timeout` and added a small retry loop around
+  disk-I/O failures inside the writer path. Surfaces on busy
+  multi-track projects where many wakes index simultaneously.
+
 ## [0.15.9] - 2026-05-16
 
 ### Fixed

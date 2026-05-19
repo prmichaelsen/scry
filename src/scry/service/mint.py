@@ -76,8 +76,12 @@ def _marker_schema(kind: str, ident: str) -> dict[str, Any]:
                     "E.g. [\"topic:auth\", \"auth\", \"scope:runtime\", \"runtime\"]"
                 ),
                 "rationale": (
-                    "Consequence of NOT reading this doc. "
-                    "E.g. 'missing causes auth bypass bugs' not 'this is important'"
+                    "Why this artifact exists: the problem it solves or the role it fills. "
+                    "Not why you would search for it, not a findability claim, not its importance. "
+                    "Lesson: 'prevents re-introducing the auth bypass fixed in PR 412'. "
+                    "Design: 'centralizes token checks so endpoints do not each re-implement them'. "
+                    "Track wake: 'owns the reflect-mcp build-to-PyPI path'. "
+                    "Bad: 'invisible to scry without this', 'this is important'."
                 ),
                 "applies": (
                     "Comma-separated verb-shaped triggers (actions, not topics). "

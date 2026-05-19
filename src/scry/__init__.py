@@ -1,3 +1,3 @@
 """scry — marker-indexed SQL cache MCP server."""
 
-__version__ = "0.15.7"
+__version__ = "0.16.1"
