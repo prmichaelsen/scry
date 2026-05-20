@@ -616,3 +616,68 @@ def test_surface_nonexistent_path(conn, project_tree):
     import pytest
     with pytest.raises(ValueError, match="does not exist"):
         surface(conn, project_root=project_tree, path="nonexistent/path/here.md")
+
+
+# ---------------------------------------------------------------------------
+# extras field (scry-spec FR4.B, v1.1.0) — added in scry-mcp v0.17.0
+# ---------------------------------------------------------------------------
+
+DOC_WITH_EXTRAS = """\
+<!-- @scry.entry
+id: task.with-extras~ccddccdd
+kind: task
+summary: a doc carrying extras
+extras:
+  cost_usd: 12.5
+  tier: gold
+  active: true
+  retries: 3
+  note: null
+@scry.entry.end -->
+"""
+
+
+def test_surface_indexes_extras_as_json_text(conn, project_tree):
+    """A marker with `extras` produces a JSON-text column populated round-trip."""
+    import json as _json
+    _write(project_tree / "agent" / "with_extras.md", DOC_WITH_EXTRAS)
+    surface(conn, project_root=project_tree)
+    row = conn.execute(
+        "SELECT extras FROM scry__doc WHERE id = 'task.with-extras~ccddccdd'"
+    ).fetchone()
+    assert row is not None
+    payload = _json.loads(row["extras"])
+    assert payload == {
+        "cost_usd": 12.5,
+        "tier": "gold",
+        "active": True,
+        "retries": 3,
+        "note": None,
+    }
+
+
+def test_surface_extras_absent_leaves_column_null(conn, project_tree):
+    """A marker without `extras` stores NULL — column stays sparse."""
+    _write(project_tree / "agent" / "tasks" / "ex.md", DOC_BLOCK)
+    surface(conn, project_root=project_tree)
+    row = conn.execute(
+        "SELECT extras FROM scry__doc WHERE id = 'task.example~12345678'"
+    ).fetchone()
+    assert row is not None
+    assert row["extras"] is None
+
+
+def test_surface_extras_queryable_via_json1(conn, project_tree):
+    """JSON1 `json_extract` works on the extras column — FR4.B SHOULD-level indexability."""
+    _write(project_tree / "agent" / "with_extras.md", DOC_WITH_EXTRAS)
+    surface(conn, project_root=project_tree)
+    row = conn.execute(
+        "SELECT json_extract(extras, '$.cost_usd') AS cost,"
+        "       json_extract(extras, '$.tier')     AS tier,"
+        "       json_extract(extras, '$.active')   AS active"
+        " FROM scry__doc WHERE id = 'task.with-extras~ccddccdd'"
+    ).fetchone()
+    assert row["cost"] == 12.5
+    assert row["tier"] == "gold"
+    # SQLite stores JSON booleans as integers when extracted.
+    assert row["active"] == 1

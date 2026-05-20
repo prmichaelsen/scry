@@ -107,12 +107,34 @@ Constraints:
 - Single depth only — values must be scalars; nested maps and lists are
   diagnostic violations.
 - Serialized size ≤ 4 KB (the spec's SHOULD-level cap).
-- Backends MAY index `extras` keys for query (SHOULD-level on this
-  Python implementation; supported via `json_extract` against the
-  serialized blob).
+- Oversize payloads MUST round-trip intact — the cap is a diagnostic,
+  not a truncation gate. Empty `extras: {}` emits a SHOULD-level warning.
 
-Oversize payloads MUST round-trip intact — the cap is a diagnostic, not a
-truncation gate. Empty `extras: {}` emits a SHOULD-level warning.
+Indexed and queryable as of v0.17.0. The `extras` field is serialized to
+compact JSON-text in the `scry__doc.extras` column (NULL when absent),
+and exposed to `scry_sql` via SQLite JSON1. A doc with
+
+```yaml
+extras:
+  cost_usd: 12.5
+  tier: gold
+  active: true
+```
+
+answers queries like:
+
+```sql
+SELECT id,
+       json_extract(extras, '$.cost_usd') AS cost,
+       json_extract(extras, '$.tier')     AS tier
+FROM scry__doc
+WHERE kind = 'deliverable'
+  AND json_extract(extras, '$.active') = 1
+ORDER BY cost DESC;
+```
+
+Round-trip is byte-equivalent for the YAML scalar map: integers, floats,
+strings, booleans, and `null` are preserved.
 
 ### `@scry.entry` kind values (v1.1 baseline)
 
@@ -192,9 +214,10 @@ uv pip install -e ".[dev]"
 pytest
 ```
 
-152 tests cover the parser, SQL gateway, mint, surface, watcher
+159 tests cover the parser, SQL gateway, mint, surface, watcher
 plumbing, script discovery, relationship cycle detection, FR4.B `extras`
-conformance, and concurrent-connection retry behavior.
+indexing + JSON1 queryability, schema-migration backfill, and
+concurrent-connection retry behavior.
 
 ## License
 

@@ -4,6 +4,32 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] - 2026-05-20
+
+### Added
+
+- **`extras` indexing on `scry__doc`** (scry-spec v1.1.0 FR4.B). New
+  `extras TEXT` column on `scry__doc` stores the marker's `extras`
+  field as compact JSON-text (NULL when absent). The fresh-install
+  schema (`001_initial.sql`) includes the column directly; legacy
+  databases get an idempotent `ALTER TABLE ADD COLUMN` on next
+  migration run.
+- **JSON1 query surface for `extras`** — the column is queryable via
+  SQLite JSON1 (`json_extract`, `->>`, `json_each`) through
+  `scry_sql`. Tool docstring updated with the new column and an
+  example query.
+- **Parser uptake** — `DocMarker.extras` propagates the
+  `scry-parse>=1.1.0` `extras` attribute (single-depth scalar map);
+  the ingestion path serializes to JSON-text on upsert. Older
+  parsers degrade to an empty dict / NULL column.
+- **Tests** — 7 new tests covering parser propagation, ingestion to
+  the column, JSON1 round-trip, sparse-NULL semantics, and migration
+  backfill on legacy DBs.
+
+### Changed
+
+- **`scry-parse` floor bumped to `>=1.1.0`** in `pyproject.toml`.
+
 ## [0.16.1] - 2026-05-19
 
 ### Changed

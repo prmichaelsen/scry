@@ -5,6 +5,7 @@ Also exposes shared upsert helpers used by the watcher daemon.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import sqlite3
 from datetime import datetime, timezone
@@ -259,18 +260,21 @@ def upsert_doc(conn: sqlite3.Connection, marker: DocMarker, rel_path: str) -> No
     kind = marker.kind or "internal"
     status = marker.status or "active"
     weight = marker.weight if marker.weight is not None else 0.5
+    # Serialize extras to compact JSON-text; NULL when absent so the column
+    # stays sparse and JSON1 predicates short-circuit on missing data.
+    extras_json = json.dumps(marker.extras, separators=(",", ":")) if marker.extras else None
 
     if row is None:
         conn.execute(
             """
             INSERT INTO scry__doc(id, kind, summary, rationale, applies, status, weight,
-                                  current_path, content_hash, ephemeral, missing_since,
+                                  current_path, content_hash, ephemeral, missing_since, extras,
                                   created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
             """,
             (
                 marker.id, kind, summary, marker.rationale, marker.applies,
-                status, weight, rel_path, h, ephemeral, _now(), _now(),
+                status, weight, rel_path, h, ephemeral, extras_json, _now(), _now(),
             ),
         )
     else:
@@ -278,12 +282,12 @@ def upsert_doc(conn: sqlite3.Connection, marker: DocMarker, rel_path: str) -> No
             """
             UPDATE scry__doc SET kind = ?, summary = ?, rationale = ?, applies = ?,
                                  status = ?, weight = ?, current_path = ?, content_hash = ?,
-                                 ephemeral = ?, missing_since = NULL, updated_at = ?
+                                 ephemeral = ?, missing_since = NULL, extras = ?, updated_at = ?
             WHERE id = ?
             """,
             (
                 kind, summary, marker.rationale, marker.applies,
-                status, weight, rel_path, h, ephemeral, _now(), marker.id,
+                status, weight, rel_path, h, ephemeral, extras_json, _now(), marker.id,
             ),
         )
 

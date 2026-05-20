@@ -286,3 +286,50 @@ def test_content_hash_stable_and_truncated():
     assert len(h) == 16
     assert h == content_hash("hello world")
     assert h != content_hash("hello world!")
+
+
+# ---------------------------------------------------------------------------
+# extras field (scry-spec FR4.B, v1.1.0)
+# ---------------------------------------------------------------------------
+
+ENTRY_WITH_EXTRAS = """\
+<!-- @scry.entry
+id: design.cost-snap~aabbccdd
+kind: design
+summary: cost snapshot doc
+extras:
+  cost_usd: 1.25
+  vendor: openai
+  active: true
+  retries: 3
+  note: null
+@scry.entry.end -->
+"""
+
+ENTRY_WITHOUT_EXTRAS = """\
+<!-- @scry.entry
+id: design.no-extras~bbccddee
+kind: design
+summary: nothing extra here
+@scry.entry.end -->
+"""
+
+
+def test_parser_adapter_propagates_extras():
+    r = parse_markers(ENTRY_WITH_EXTRAS, file="x.md")
+    assert len(r.docs) == 1
+    e = r.docs[0]
+    assert e.extras == {
+        "cost_usd": 1.25,
+        "vendor": "openai",
+        "active": True,
+        "retries": 3,
+        "note": None,
+    }
+
+
+def test_parser_adapter_empty_extras_is_empty_dict():
+    r = parse_markers(ENTRY_WITHOUT_EXTRAS, file="x.md")
+    assert len(r.docs) == 1
+    e = r.docs[0]
+    assert e.extras == {}

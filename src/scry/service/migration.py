@@ -13,6 +13,21 @@ from pathlib import Path
 from scry.config import get_db
 
 
+def _ensure_extras_column(c: sqlite3.Connection) -> None:
+    """Add the scry__doc.extras column to existing DBs.
+
+    Introduced in scry-mcp v0.17.0 alongside scry-spec v1.1.0 FR4.B.  The
+    fresh-install path in 001_initial.sql includes the column directly;
+    this function handles already-migrated DBs whose table predates it.
+    Safe to call on every startup — the PRAGMA check is cheap and the
+    ALTER is gated on absence.
+    """
+    cols = {row[1] for row in c.execute("PRAGMA table_info(scry__doc)").fetchall()}
+    if "extras" not in cols:
+        c.execute("ALTER TABLE scry__doc ADD COLUMN extras TEXT")
+        c.commit()
+
+
 def _cleanup_legacy_triggers(c: sqlite3.Connection) -> None:
     """Drop triggers that were added in old schema versions but conflict with the
     explicit FTS management in surface.py.
@@ -46,6 +61,7 @@ def run_migrations(db_path: Path | None = None, conn: sqlite3.Connection | None 
     try:
         sql = resources.files("scry.migrations").joinpath("001_initial.sql").read_text(encoding="utf-8")
         c.executescript(sql)
+        _ensure_extras_column(c)
         _cleanup_legacy_triggers(c)
         c.commit()
     finally:

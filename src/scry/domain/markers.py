@@ -69,6 +69,10 @@ class DocMarker:
     depends_on: list[str] = field(default_factory=list)
     implements: list[str] = field(default_factory=list)
     supersedes: list[str] = field(default_factory=list)
+    # extras: scry-spec v1.1.0 FR4.B — single-depth scalar map of
+    # author-defined metadata.  Empty dict when absent.  Provided by
+    # scry-parse >=1.1.0; older parsers leave this empty.
+    extras: dict[str, Any] = field(default_factory=dict)
     raw_body: str = ""
     span: tuple[int, int] = (0, 0)
 
@@ -132,6 +136,23 @@ def _coerce_text(value: Any) -> str | None:
     return str(value)
 
 
+def _coerce_extras(value: Any) -> dict[str, Any]:
+    """Coerce scry-parse `extras` to a dict; tolerate older parsers and bad shapes.
+
+    scry-parse <1.1.0 has no `extras` attribute (parser returns None / missing).
+    scry-parse >=1.1.0 emits a dict of scalar values per scry-spec FR4.B
+    (single-depth, scalars only: str | int | float | bool | None).  This
+    coercer accepts the dict as-is; non-dict values fall back to {}.
+    """
+    if not value:
+        return {}
+    if isinstance(value, dict):
+        # Keys are stringified to be safe; values pass through (already scalar
+        # per parser contract — non-scalars would have failed at parse time).
+        return {str(k): v for k, v in value.items()}
+    return {}
+
+
 def _coerce_float(value: Any) -> float | None:
     if value is None:
         return None
@@ -178,6 +199,7 @@ def parse_markers(content: str, file: str = "") -> ParseResult:
             depends_on=list(e.depends_on) if e.depends_on else [],
             implements=_coerce_list_field(e.implements),
             supersedes=_coerce_list_field(e.supersedes),
+            extras=_coerce_extras(getattr(e, "extras", None)),
             raw_body=raw,
             span=e.span,
         ))

@@ -24,6 +24,10 @@ CREATE TABLE IF NOT EXISTS scry__doc (
   content_hash TEXT,
   ephemeral    INTEGER NOT NULL DEFAULT 0,
   missing_since TEXT,
+  -- extras: JSON-text serialization of the marker's `extras` field
+  -- (scry-spec FR4.B, v1.1.0). Single-depth scalar map; NULL when absent.
+  -- Query with SQLite JSON1 (json_extract, ->>, json_each).
+  extras       TEXT,
   created_at   TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at   TEXT NOT NULL DEFAULT (datetime('now'))
 );

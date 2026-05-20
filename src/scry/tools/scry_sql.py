@@ -17,7 +17,11 @@ async def scry_sql(query: str) -> str:
       scry__doc        — knowledge graph entries (@scry.entry markers)
                          columns: id, kind, status, weight, summary, rationale, applies,
                                   current_path, ephemeral, missing_since, content_hash,
-                                  created_at, updated_at
+                                  extras (JSON1; NULL when absent), created_at, updated_at
+                         extras: single-depth scalar map per scry-spec FR4.B (v1.1.0+).
+                         Query with JSON1, e.g.
+                           SELECT id, json_extract(extras, '$.cost_usd') AS cost
+                           FROM scry__doc WHERE kind = 'deliverable' ORDER BY cost DESC
       scry__doc_tag    — tags as a join table: doc_id, tag
       scry__doc_seeded_question — seeded questions: doc_id, ordinal, question
       scry__anchor     — named code location bookmarks: id, doc_id, description,
