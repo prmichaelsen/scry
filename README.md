@@ -60,7 +60,7 @@ becomes the project root. The cache lives at
 
 ## Markers
 
-Scry recognizes three marker kinds per scry-spec v1.1: `@scry.entry` and
+Scry recognizes three marker kinds per scry-spec v1.2.0: `@scry.entry` and
 `@scry.anchor` are block markers with a YAML body between open/close tokens;
 `@scry.bind` is a line or block marker declaring cross-references.
 
@@ -98,7 +98,7 @@ Block markers can be embedded in any host-language comment style (HTML,
 Python, JS, JSDoc, Rust, bare YAML). Comment prefixes are inferred from
 the YAML body — there is no per-language config.
 
-### `extras` field (scry-spec v1.1, FR4.B)
+### `extras` field (scry-spec v1.2.0, FR4.B)
 
 `@scry.entry` accepts an optional `extras` field: a single-depth map of
 arbitrary string keys to scalar values (`string | number | boolean | null`).
@@ -140,7 +140,7 @@ ORDER BY cost DESC;
 Round-trip is byte-equivalent for the YAML scalar map: integers, floats,
 strings, booleans, and `null` are preserved.
 
-### `@scry.entry` kind values (v1.1 baseline)
+### `@scry.entry` kind values (v1.2.0 baseline)
 
 | kind | use for |
 |---|---|
@@ -151,6 +151,7 @@ strings, booleans, and `null` are preserved.
 | `internal` | service quirks, undocumented behaviors |
 | `task` | discrete work items |
 | `milestone` | phase markers, exit criteria |
+| `goal` | objective satisfied by a deliverable set via the `satisfies` typed edge (v1.2.0) |
 | `report` | wake/session reports |
 | `audit` | security or integrity audits |
 | `research` | research notes |
