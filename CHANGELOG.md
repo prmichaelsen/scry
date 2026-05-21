@@ -4,6 +4,39 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-05-21
+
+### Added
+
+- **MCP `instructions` field now carries the scry-spec v1.1.2
+  Recommended Operating Discipline** (Canonical Minimal Form).
+  `SERVER_INSTRUCTIONS` in `src/scry/server.py` was previously a
+  five-line mechanical server description; it now leads with the
+  five named operating disciplines (D1 orient-first, D2
+  lesson-search-on-failure, D3 mark-every-artifact, D4
+  author-fields-for-queries, D5 bind-implementations-to-targets)
+  verbatim from scry-spec v1.1.2, followed by a "Mechanical notes"
+  paragraph that preserves the prior content (SQL surface, mint
+  discipline, watcher behavior). Consumer projects that previously
+  duplicated scry-usage guidance in their own CLAUDE.md / wake.md
+  may now trim those blocks to a pointer; the operating discipline
+  travels with the MCP server.
+- **`test_server_instructions_carry_canonical_minimal_form`** —
+  unit assertion that `SERVER_INSTRUCTIONS` contains each of the
+  named disciplines `D1.`, `D2.`, `D3.`, `D4.`, `D5.` and the
+  spec-pointer line. Catches regression on the embedded text
+  without coupling to exact wording.
+- **`test_mcp_initialize_returns_canonical_minimal_form_instructions`** —
+  handshake-level assertion that the `instructions` field returned
+  by the MCP `initialize` response carries `D1.` through `D5.`
+  Catches regression at the wire surface, not just the constant.
+
+### Changed
+
+- **`scry-spec` floor implicit at 1.1.2** for the operating-discipline
+  text. (No `pyproject.toml` dependency change — the spec is text the
+  server embeds, not a Python package.)
+
 ## [0.17.0] - 2026-05-20
 
 ### Added
