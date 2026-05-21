@@ -4,6 +4,30 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.1] - 2026-05-21
+
+### Added
+
+- **`scry_db_health` MCP tool** — sqlite integrity probe that
+  distinguishes corruption from transient lock contention. Returns
+  `status` ∈ {`ok`, `corrupt`, `locked`} along with `integrity`
+  (`PRAGMA integrity_check` result), `doc_count`, and structured error
+  fields. Designed for substrate code (e.g. reflection's `wake.py`
+  auto-restore loop) that previously inlined `sqlite3.connect(...,
+  timeout=2)` and conflated `SQLITE_BUSY` with on-disk corruption,
+  causing healthy DBs to be quarantined under concurrent-wake load.
+  Uses the same WAL + `busy_timeout=30000` connection primitives as
+  every other scry-mcp tool, so the probe sees the DB as scry-mcp
+  itself does. See `report.scry-corruption-diagnostic-prevention~876104b1`
+  for the failure mode this closes.
+- **`tests/test_db_health.py`** — 8 new tests covering: healthy
+  migrated DB with and without rows; fresh-and-unmigrated DB
+  (`status=ok`, `doc_count=null`, `doc_count_error` populated);
+  hard corruption (garbage file header); synthetic non-`ok`
+  `integrity_check` result; and lock/`SQLITE_IOERR` paths at both
+  connect time and pragma time — both of which MUST report
+  `status="locked"`, never `status="corrupt"`.
+
 ## [0.18.0] - 2026-05-21
 
 ### Added

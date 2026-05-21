@@ -9,6 +9,7 @@ from scry.tools.scry_sink import scry_sink
 from scry.tools.scry_scrub import scry_scrub
 from scry.tools.scry_script import scry_script
 from scry.tools.scry_grep import scry_grep
+from scry.tools.scry_db_health import scry_db_health
 
 
 def register_tools(mcp) -> None:
@@ -20,3 +21,4 @@ def register_tools(mcp) -> None:
     mcp.tool()(scry_scrub)
     mcp.tool()(scry_script)
     mcp.tool()(scry_grep)
+    mcp.tool()(scry_db_health)

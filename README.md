@@ -164,6 +164,7 @@ strings, booleans, and `null` are preserved.
 | `scry_sink(then_surface=false)` | Lower the index back to disk-only state — truncates all index tables atomically (schema preserved, disk markers untouched). Requires user confirmation; `then_surface=true` rebuilds in one call. |
 | `scry_scrub()` | Create a `<branch>--clean` git branch with all `@scry.*` markers stripped from non-agent files. |
 | `scry_script(action, script?, params?)` | Discover and run validation scripts from `src/scry/scripts/` and `agent/drivers/@<ns>/scry/scripts/`. |
+| `scry_db_health()` | Probe the project DB and report `status` ∈ {`ok`, `corrupt`, `locked`}, `integrity_check` result, and `scry__doc` row count. For substrate auto-restore loops that need to distinguish corruption from transient WAL write-lock contention. |
 
 ## Database schema
 
