@@ -1,5 +1,9 @@
 # scry
 
+**[Scry Marker Specification](https://github.com/prmichaelsen/scry-spec) - This project implements a formal, generic scry marker contract defined here**
+
+See [scryspec.com](https://scryspec.com) for an overview.
+
 Marker-indexed SQL cache MCP server. Scry indexes in-file `@scry.*` markers
 into a SQLite database that agents query via read-only SQL, providing
 structured project knowledge without LLM reasoning.
