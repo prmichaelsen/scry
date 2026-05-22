@@ -29,13 +29,16 @@ from scry_parse import BASELINE_STATUSES
 
 BLOCK_KINDS: tuple[str, ...] = ("entry", "anchor")
 
-# scry-spec v1.0 baseline kinds (scry-mcp extends with "clarification").
+# scry-spec v1.2.0 baseline kinds (scry-mcp extends with "clarification").
 # Unknown kinds are preserved as-is per FR8 — these are only for UI hints.
 DOC_KIND_VALUES = (
     # Documentation/Knowledge
     "design", "pattern", "spec", "lesson", "internal",
     # Work Management
     "task", "milestone",
+    # Goals (scry-spec v1.2.0 FR8) — completion derived via `satisfies` edges,
+    # never declared on the goal marker itself.
+    "goal",
     # Analysis/Outputs
     "report", "audit", "research",
     # Implementation
@@ -69,6 +72,10 @@ class DocMarker:
     depends_on: list[str] = field(default_factory=list)
     implements: list[str] = field(default_factory=list)
     supersedes: list[str] = field(default_factory=list)
+    # scry-spec v1.2.0 FR12 — `satisfies` typed-edge predicate.  Goal
+    # completion is derived from the deliverable set that satisfies it.
+    # Parser <1.2.0 has no `satisfies` attribute; coercer handles that.
+    satisfies: list[str] = field(default_factory=list)
     # extras: scry-spec v1.1.0 FR4.B — single-depth scalar map of
     # author-defined metadata.  Empty dict when absent.  Provided by
     # scry-parse >=1.1.0; older parsers leave this empty.
@@ -199,6 +206,7 @@ def parse_markers(content: str, file: str = "") -> ParseResult:
             depends_on=list(e.depends_on) if e.depends_on else [],
             implements=_coerce_list_field(e.implements),
             supersedes=_coerce_list_field(e.supersedes),
+            satisfies=_coerce_list_field(getattr(e, "satisfies", None)),
             extras=_coerce_extras(getattr(e, "extras", None)),
             raw_body=raw,
             span=e.span,

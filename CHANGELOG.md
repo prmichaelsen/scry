@@ -4,6 +4,36 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-05-22
+
+### Added
+
+- **scry-spec v1.2.0 — `kind: goal` + `satisfies` predicate.** Adds
+  `goal` to the recognized baseline kinds (UI-hint only — unknown
+  kinds were already preserved as-is per FR8). Adds the `satisfies`
+  typed-edge predicate (parallel to `depends_on` / `implements` /
+  `supersedes`) and surfaces it in `scry__rel`. `DocMarker` gains a
+  `satisfies: list[str]` field; the parser adapter reads it via
+  `getattr(e, "satisfies", None)` so older scry-parse builds (no
+  attribute) coerce cleanly to `[]`. End-to-end activation lands
+  when scry-parse 1.2.0 ships the field; until then, in-band
+  `satisfies` markers are inert at the parser layer but the
+  backend rel-writer + predicate enum + `scry_sql` schema
+  description are ready. See the scry-spec v1.2.0 broadcast
+  (`scry-spec` commit `faf4767`, tag `v1.2.0`).
+- `SUPPORTED_PREDICATES` (`scry.service.relationship`) now includes
+  `"satisfies"`. `add_relationship` accepts it; cycle detection
+  remains scoped to `depends_on` (satisfies is acyclic by
+  semantics).
+
+### Notes
+
+- INV-GOAL-COMPLETION write-time enforcement (rejecting hand-edited
+  `status: met` on `kind: goal` markers) is **not** included in this
+  release. Non-validating ingestion preserves the field as-is per
+  FR8. Deferred to a future release pending the v1.3+ candidate
+  enforcement design.
+
 ## [0.18.1] - 2026-05-21
 
 ### Added

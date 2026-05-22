@@ -70,3 +70,26 @@ def test_supersedes_stored(conn):
         "SELECT 1 FROM scry__rel WHERE from_id='a' AND to_id='b' AND predicate='supersedes'"
     ).fetchone()
     assert row is not None
+
+
+def test_satisfies_stored(conn):
+    """satisfies predicate is stored correctly (scry-spec v1.2.0)."""
+    _insert_doc(conn, "deliverable.x")
+    _insert_doc(conn, "goal.y")
+    out = add_relationship(conn, "deliverable.x", "goal.y", relationship="satisfies")
+    assert out.get("ok") is True
+    row = conn.execute(
+        "SELECT 1 FROM scry__rel "
+        "WHERE from_id='deliverable.x' AND to_id='goal.y' AND predicate='satisfies'"
+    ).fetchone()
+    assert row is not None
+
+
+def test_satisfies_no_cycle_check(conn):
+    """satisfies edges are acyclic by semantics; no cycle check applies."""
+    _insert_doc(conn, "a")
+    _insert_doc(conn, "b")
+    add_relationship(conn, "a", "b", relationship="satisfies")
+    # Reverse direction is allowed at the storage layer — no cycle rejection.
+    out = add_relationship(conn, "b", "a", relationship="satisfies")
+    assert out.get("ok") is True

@@ -30,7 +30,7 @@ async def scry_sql(query: str) -> str:
       scry__bind       — binding markers (@scry.bind): id, source_doc_id, source_local_id,
                          target_id, target_fragment, comment, content_hash, created_at,
                          updated_at
-      scry__rel        — typed edges between docs: from_id, to_id, predicate (depends_on|implements|supersedes), fragment
+      scry__rel        — typed edges between docs: from_id, to_id, predicate (depends_on|implements|supersedes|satisfies), fragment
       scry__file       — universal file body index: path, doc_id, body, content_hash,
                          last_modified
       scry__bind_fts   — full-text search over bindings (source_local_id, target_id, comment)

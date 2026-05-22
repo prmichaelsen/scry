@@ -239,6 +239,7 @@ def _sync_relationships(conn: sqlite3.Connection, marker: DocMarker) -> list[str
     warnings = _sync_rel_predicate(conn, marker.id, "depends_on", marker.depends_on)
     _sync_rel_predicate(conn, marker.id, "implements", marker.implements)
     _sync_rel_predicate(conn, marker.id, "supersedes", marker.supersedes)
+    _sync_rel_predicate(conn, marker.id, "satisfies", marker.satisfies)
     return warnings
 
 

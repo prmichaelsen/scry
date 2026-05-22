@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sqlite3
 
-SUPPORTED_PREDICATES = {"depends_on", "implements", "supersedes"}
+SUPPORTED_PREDICATES = {"depends_on", "implements", "supersedes", "satisfies"}
 
 
 def add_relationship(
