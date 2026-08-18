@@ -53,9 +53,9 @@ def _generate(prefix: str) -> str:
     return f"{prefix}~{secrets.token_hex(4)}"
 
 
-def _marker_schema(kind: str, ident: str) -> dict[str, Any]:
+def _marker_schema(kind: str, ident: str, marker_mode: str = "inline") -> dict[str, Any]:
     if kind == "entry":
-        return {
+        schema: dict[str, Any] = {
             "marker_open": "<!-- @scry.entry",
             "marker_close": "@scry.entry.end -->",
             "fields": {
@@ -92,8 +92,17 @@ def _marker_schema(kind: str, ident: str) -> dict[str, Any]:
                     "E.g. ['What is the JWT refresh flow?', 'JWT refresh token implementation']"
                 ),
             },
-            "suggested_path": f"agent/docs/{ident}.md",
         }
+        if marker_mode == "sidecar":
+            schema["suggested_path"] = f"agent/scry/{ident}.md"
+            schema["placement"] = (
+                "Write this marker in the suggested_path file, NOT in source files. "
+                "Set extras.source to the source file this marker describes."
+            )
+        else:
+            schema["suggested_path"] = f"agent/docs/{ident}.md"
+            schema["placement"] = "Write this marker directly in the source file it describes."
+        return schema
     if kind == "anchor":
         return {
             "marker_open": f"<!-- @scry.anchor {ident}",
@@ -171,7 +180,7 @@ def _check_collisions(
     return tier1, tier2
 
 
-def mint(conn: sqlite3.Connection, kind: str, prefix: str) -> dict[str, Any]:
+def mint(conn: sqlite3.Connection, kind: str, prefix: str, marker_mode: str = "inline") -> dict[str, Any]:
     if kind not in VALID_KINDS:
         return {"error": f"invalid kind {kind!r} (expected one of {VALID_KINDS})"}
     err = _validate_prefix(kind, prefix)
@@ -180,7 +189,7 @@ def mint(conn: sqlite3.Connection, kind: str, prefix: str) -> dict[str, Any]:
     for _ in range(8):
         ident = _generate(prefix)
         if not _exists(conn, kind, ident):
-            result: dict[str, Any] = {"id": ident, "schema": _marker_schema(kind, ident)}
+            result: dict[str, Any] = {"id": ident, "schema": _marker_schema(kind, ident, marker_mode)}
             tier1, tier2 = _check_collisions(conn, kind, prefix)
             if tier1:
                 result["tier1_collisions"] = tier1

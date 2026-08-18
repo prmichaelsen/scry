@@ -45,8 +45,9 @@ async def scry_mint(kind: str, prefix: str) -> str:
       seeded_questions — include both full questions AND fragment queries.
                   ["What is the JWT refresh flow?", "JWT refresh token implementation"]
     """
+    from scry.tools import get_marker_mode
     conn = get_db()
     try:
-        return serialize(mint(conn, kind, prefix))
+        return serialize(mint(conn, kind, prefix, marker_mode=get_marker_mode()))
     finally:
         conn.close()

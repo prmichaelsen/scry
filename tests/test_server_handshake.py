@@ -95,24 +95,26 @@ def test_mcp_initialize_handshake_completes_within_deadline(tmp_path: Path) -> N
 
 
 def test_server_instructions_carry_canonical_minimal_form() -> None:
-    """SERVER_INSTRUCTIONS must embed scry-spec v1.1.2 Canonical
-    Minimal Form (D1-D5 + spec pointer)."""
-    from scry.server import SERVER_INSTRUCTIONS
+    """Server instructions must embed scry-spec v1.1.2 Canonical
+    Minimal Form (D1-D5 + spec pointer) in marker-bearing modes."""
+    from scry.server import _build_instructions
+
+    instructions = _build_instructions("inline")
 
     for marker in ("D1.", "D2.", "D3.", "D4.", "D5."):
-        assert marker in SERVER_INSTRUCTIONS, (
-            f"SERVER_INSTRUCTIONS missing discipline marker {marker!r} — "
+        assert marker in instructions, (
+            f"instructions missing discipline marker {marker!r} — "
             "scry-spec v1.1.2 Canonical Minimal Form regression."
         )
     # Spec-pointer line — the phrase wraps across a newline in the
     # canonical text, so normalize whitespace before matching.
-    normalized = " ".join(SERVER_INSTRUCTIONS.split())
+    normalized = " ".join(instructions.split())
     assert "Recommended Operating Discipline" in normalized, (
-        "SERVER_INSTRUCTIONS missing spec-pointer line referencing "
+        "instructions missing spec-pointer line referencing "
         "the 'Recommended Operating Discipline' section."
     )
     assert "scry-spec" in normalized, (
-        "SERVER_INSTRUCTIONS missing 'scry-spec' reference in the "
+        "instructions missing 'scry-spec' reference in the "
         "spec-pointer line."
     )
 

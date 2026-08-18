@@ -5,13 +5,39 @@ import atexit
 
 from mcp.server.fastmcp import FastMCP
 
-from scry.config import get_db_path, get_project_root
+from scry.config import MarkerMode, get_db_path, get_marker_mode, get_project_root
 from scry.service.migration import run_migrations
 from scry.service.watcher import ScryWatcher
 from scry.tools import register_tools
 
 
-SERVER_INSTRUCTIONS = """\
+_D3_INLINE = """\
+D3. Mark every created artifact. Every file a consumer creates
+    should carry a @scry.entry marker with an ID minted through
+    the implementation's mint surface — never invented. Marked
+    files are reachable by meaning, tag, and question — not just
+    path or content search."""
+
+_D3_SIDECAR = """\
+D3. Document every created artifact. This project uses sidecar mode:
+    all @scry.* markers live in agent/scry/, never in source files.
+    (Inline mode embeds markers directly in source; sidecar mode
+    keeps source files clean by storing markers separately.)
+
+    For every source file a consumer creates, write a corresponding
+    @scry.entry marker in a markdown file under agent/scry/. Use the
+    extras field with key "source" to reference the source file path
+    (e.g. source: src/auth/middleware.ts). Marked files are reachable
+    by meaning, tag, and question — not just path or content search.
+
+    When renaming or moving a source file, update extras.source in
+    its marker. When changing a file's contents, ensure its sidecar
+    marker still applies and update if out of date."""
+
+
+def _build_instructions(marker_mode: MarkerMode) -> str:
+    d3 = _D3_SIDECAR if marker_mode == "sidecar" else _D3_INLINE
+    return f"""\
 Scry indexes structured @scry.* markers from source files into a
 queryable knowledge graph. Markers carry artifact identity, metadata,
 and traceability between artifacts.
@@ -27,11 +53,7 @@ D2. On unexpected failure, search for a prior lesson before
     the cause. Skipping this search is how the same mistake is
     solved twice.
 
-D3. Mark every created artifact. Every file a consumer creates
-    should carry a @scry.entry marker with an ID minted through
-    the implementation's mint surface — never invented. Unmarked
-    files are reachable only by path; marked files are reachable
-    by meaning, tag, and question.
+{d3}
 
 D4. Author marker fields for the queries that will hit them.
     Summary leads with prose and ends with an "Also:" keyword
@@ -55,8 +77,10 @@ exactly. The file watcher keeps the DB in sync with disk automatically."""
 
 
 def run_server() -> None:
-    mcp = FastMCP("scry", instructions=SERVER_INSTRUCTIONS)
-    register_tools(mcp)
+    marker_mode = get_marker_mode()
+    instructions = _build_instructions(marker_mode)
+    mcp = FastMCP("scry", instructions=instructions)
+    register_tools(mcp, marker_mode=marker_mode)
 
     run_migrations()
 

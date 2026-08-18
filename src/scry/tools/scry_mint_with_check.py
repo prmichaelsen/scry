@@ -25,8 +25,9 @@ async def scry_mint_with_check(kind: str, prefix: str) -> str:
 
     Returns: id, marker schema (same as scry_mint), plus tier-1/tier-2 collision info.
     """
+    from scry.tools import get_marker_mode
     conn = get_db()
     try:
-        return serialize(mint(conn, kind, prefix))
+        return serialize(mint(conn, kind, prefix, marker_mode=get_marker_mode()))
     finally:
         conn.close()

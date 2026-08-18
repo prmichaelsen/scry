@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import sqlite3
+import tomllib
 from pathlib import Path
+from typing import Literal
 
 EXCLUDED_DIRS = frozenset({".git", "node_modules", "__pycache__", ".venv", "dist"})
 DEBOUNCE_MS = 150
@@ -43,6 +45,26 @@ def get_lock_path(project_root: Path | None = None) -> Path:
 
 def get_driver_scripts_dir(project_root: Path | None = None) -> Path:
     return get_driver_dir(project_root) / "scripts"
+
+
+MarkerMode = Literal["inline", "sidecar"]
+
+_VALID_MARKER_MODES: frozenset[str] = frozenset({"inline", "sidecar"})
+
+
+def get_marker_mode(project_root: Path | None = None) -> MarkerMode:
+    """Read marker_mode from config.toml. Defaults to 'inline'."""
+    config_path = get_driver_dir(project_root) / "config.toml"
+    if not config_path.is_file():
+        return "inline"
+    try:
+        data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+    except Exception:
+        return "inline"
+    mode = data.get("marker_mode", "inline")
+    if mode not in _VALID_MARKER_MODES:
+        return "inline"
+    return mode  # type: ignore[return-value]
 
 
 def get_db(db_path: Path | None = None) -> sqlite3.Connection:
