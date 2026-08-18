@@ -23,7 +23,7 @@ classifiers = [
     "Topic :: Text Processing :: Indexing",
 ]
 dependencies = [
-    "mcp>=1.0",
+    "mcp>=1.0,<2.0",
     "pathspec>=0.12",
     "scry-parse>=1.1.0",
     "watchdog>=4.0",
