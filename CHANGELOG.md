@@ -4,6 +4,50 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-08-18
+
+### Added
+
+- **`marker_mode = "off"`.** A third marker mode alongside `inline`
+  and `sidecar`. In off mode scry reads and writes no `@scry.*`
+  markers and registers only `scry_grep`, `scry_surface`, and
+  `scry_db_health` — turning scry into a fast full-text file search
+  over indexed file bodies. Server instructions drop the D1–D5
+  marker discipline for a minimal grep-oriented set. Point scry at
+  any project by creating `.scry/config.toml` with
+  `marker_mode = "off"`; no marker adoption required. File-body
+  indexing was already unconditional, so `scry_grep` works with no
+  pipeline changes.
+- **`marker_mode = "inline" | "sidecar"` config.** Read from
+  `.scry/config.toml`. Sidecar mode stores markers in `agent/scry/`
+  sidecar files (with `extras.source` pointing at the described
+  file) to keep source files clean; mint suggests the sidecar path
+  and placement guidance accordingly. Server instructions branch D3
+  per mode.
+
+### Changed
+
+- **Storage relocated to `.scry/`.** The DB, lock file, config, and
+  project-local scripts now live under `.scry/` at the project root
+  instead of `agent/drivers/@<ns>/scry/`. This decouples scry from
+  ACP's `agent/` scaffold — scry can now run on any project.
+  `get_project_root` walks for `.scry/` (falling back to cwd);
+  `get_namespace` and `get_driver_dir` are removed in favor of flat
+  path helpers (`get_scry_dir`, `get_scripts_dir`). `scry init`
+  scaffolds `.scry/{data,runtime,scripts}/` and a `.scry/.gitignore`;
+  the `--namespace` flag is gone.
+- **`.scry/.gitignore` written on server boot** (not just `scry init`),
+  keeping the rebuildable cache (`data/`, `runtime/`) out of git even
+  when scry is pointed at a project that never ran `scry init`.
+  `config.toml` and `scripts/` remain committable.
+
+### Migration
+
+- The DB is a pure cache, so no data migration is required — existing
+  projects rebuild the index at the new `.scry/data/project.db` path
+  on next startup. The old `agent/drivers/@<ns>/scry/` storage is
+  orphaned and can be deleted manually.
+
 ## [0.19.0] - 2026-05-22
 
 ### Added
