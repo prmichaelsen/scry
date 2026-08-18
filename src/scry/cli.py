@@ -1,7 +1,7 @@
 """scry CLI dispatcher (installed by the `scry-mcp` distribution).
 
   scry            run the MCP server (default; what Claude calls)
-  scry init       scaffold an `agent/` tree + driver dirs in CWD
+  scry init       scaffold a `.scry/` dir in CWD
   scry surface    one-shot batch reindex (no server, no watcher)
   scry version    print the package version
   scry --help
@@ -29,9 +29,27 @@ runtime/
 """
 
 
+def _ensure_scry_gitignore(
+    scry_dir: Path,
+    target: Path | None = None,
+    created: list[str] | None = None,
+    preserved: list[str] | None = None,
+) -> None:
+    """Write .scry/.gitignore if absent. Ignores the rebuildable cache
+    (data/, runtime/) while keeping config.toml and scripts/ committable."""
+    local_gi = scry_dir / ".gitignore"
+    if local_gi.exists():
+        if preserved is not None and target is not None:
+            preserved.append(str(local_gi.relative_to(target)))
+        return
+    local_gi.parent.mkdir(parents=True, exist_ok=True)
+    local_gi.write_text(_LOCAL_GITIGNORE, encoding="utf-8")
+    if created is not None and target is not None:
+        created.append(str(local_gi.relative_to(target)))
+
+
 def _cmd_init(args: argparse.Namespace) -> int:
     target = Path(args.path).resolve()
-    namespace = args.namespace
     target.mkdir(parents=True, exist_ok=True)
 
     created: list[str] = []
@@ -45,26 +63,15 @@ def _cmd_init(args: argparse.Namespace) -> int:
             p.mkdir(parents=True)
             created.append(rel)
 
-    agent = target / "agent"
-    ensure_dir(agent, "agent/")
-    driver = agent / "drivers" / f"@{namespace}" / "scry"
-    ensure_dir(driver / "data")
-    ensure_dir(driver / "runtime")
-    ensure_dir(driver / "scripts")
+    scry_dir = target / ".scry"
+    ensure_dir(scry_dir, ".scry/")
+    ensure_dir(scry_dir / "data")
+    ensure_dir(scry_dir / "runtime")
+    ensure_dir(scry_dir / "scripts")
 
-    # Local .gitignore inside the driver dir — keeps scry's gitignore
-    # concerns self-contained instead of polluting the project root.
-    local_gi = driver / ".gitignore"
-    if local_gi.exists():
-        preserved.append(str(local_gi.relative_to(target)))
-    else:
-        local_gi.write_text(_LOCAL_GITIGNORE, encoding="utf-8")
-        created.append(str(local_gi.relative_to(target)))
+    _ensure_scry_gitignore(scry_dir, target, created, preserved)
 
     print(f"Initialized scry in {target}")
-    print(f"  namespace: @{namespace}")
-    if (agent / "commands").is_dir() or (agent / "progress.yaml").is_file():
-        print("  detected: ACP project (agent/ tree preserved)")
     if created:
         print("  created:")
         for c in created:
@@ -123,9 +130,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", action="version", version=f"scry {__version__}")
     sub = parser.add_subparsers(dest="command")
 
-    p_init = sub.add_parser("init", help="Scaffold an agent/ tree in the current project.")
+    p_init = sub.add_parser("init", help="Scaffold a .scry/ dir in the current project.")
     p_init.add_argument("path", nargs="?", default=".", help="Project directory (default: cwd).")
-    p_init.add_argument("--namespace", default="local", help="Driver namespace (default: local).")
 
     p_surface = sub.add_parser("surface", help="One-shot batch reindex of the project tree.")
     p_surface.add_argument("--force", action="store_true", help="Hard-delete records whose source file is gone.")

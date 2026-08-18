@@ -8,7 +8,7 @@ import traceback
 from pathlib import Path
 from typing import Any
 
-from scry.config import get_driver_scripts_dir, get_project_root
+from scry.config import get_project_root, get_scripts_dir
 
 
 def _bundled_scripts_dir() -> Path:
@@ -18,7 +18,7 @@ def _bundled_scripts_dir() -> Path:
 def _script_dirs(project_root: Path | None = None) -> list[Path]:
     return [
         _bundled_scripts_dir(),
-        get_driver_scripts_dir(project_root),
+        get_scripts_dir(project_root),
     ]
 
 

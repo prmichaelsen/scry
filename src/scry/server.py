@@ -35,7 +35,19 @@ D3. Document every created artifact. This project uses sidecar mode:
     marker still applies and update if out of date."""
 
 
+_OFF_INSTRUCTIONS = """\
+Scry indexes file content for fast full-text search. This project
+runs in marker-off mode: no @scry.* markers are read or written.
+
+- Use scry_grep to search file content across the project.
+- No markers, no minting, no stamping.
+- scry_surface re-scans the project if results seem stale.
+- scry_db_health reports index status."""
+
+
 def _build_instructions(marker_mode: MarkerMode) -> str:
+    if marker_mode == "off":
+        return _OFF_INSTRUCTIONS
     d3 = _D3_SIDECAR if marker_mode == "sidecar" else _D3_INLINE
     return f"""\
 Scry indexes structured @scry.* markers from source files into a
@@ -77,10 +89,17 @@ exactly. The file watcher keeps the DB in sync with disk automatically."""
 
 
 def run_server() -> None:
+    from scry.cli import _ensure_scry_gitignore
+    from scry.config import get_scry_dir
+
     marker_mode = get_marker_mode()
     instructions = _build_instructions(marker_mode)
     mcp = FastMCP("scry", instructions=instructions)
     register_tools(mcp, marker_mode=marker_mode)
+
+    # Keep the rebuildable cache (data/, runtime/) out of git even when
+    # the server is pointed at a project that never ran `scry init`.
+    _ensure_scry_gitignore(get_scry_dir())
 
     run_migrations()
 

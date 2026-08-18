@@ -50,13 +50,23 @@ server over stdio — that's what Claude calls. Other subcommands:
 | Command | Purpose |
 |---|---|
 | `scry` | Run the MCP server (default). |
-| `scry init [path]` | Create `agent/` + `agent/drivers/@local/scry/{data,runtime,scripts}/` and a local `.gitignore` inside the driver dir. Idempotent — safe to run inside an ACP project. |
+| `scry init [path]` | Create `.scry/{data,runtime,scripts}/` and a `.scry/.gitignore`. Idempotent — safe to run inside an ACP project. |
 | `scry surface [--force]` | One-shot batch reindex without booting the server. |
 | `scry version` | Print the package version. |
 
-The server walks up from `cwd` until it finds an `agent/` directory; that
-becomes the project root. The cache lives at
-`agent/drivers/@<namespace>/scry/data/project.db` and is gitignored.
+The server walks up from `cwd` until it finds a `.scry/` directory; that
+becomes the project root (falling back to `cwd` when none is found). The
+cache lives at `.scry/data/project.db` and is gitignored.
+
+## Marker mode
+
+`marker_mode` in `.scry/config.toml` controls how markers are handled:
+
+| Mode | Behavior |
+|---|---|
+| `inline` (default) | Markers live embedded in source files. |
+| `sidecar` | Markers live in `agent/scry/` sidecar files, keeping source clean; `extras.source` points at the described file. |
+| `off` | No markers read or written. Only `scry_grep`, `scry_surface`, and `scry_db_health` are registered — scry becomes a fast full-text file search. Point it at any project (create `.scry/config.toml` with `marker_mode = "off"`); no marker adoption required. |
 
 ## Markers
 
@@ -168,7 +178,7 @@ strings, booleans, and `null` are preserved.
 | `scry_surface(force=false, path?)` | Batch reindex from disk. `force=true` hard-deletes records whose source file no longer exists; `path` scopes the walk to a single file or subdirectory. |
 | `scry_sink(then_surface=false)` | Lower the index back to disk-only state — truncates all index tables atomically (schema preserved, disk markers untouched). Requires user confirmation; `then_surface=true` rebuilds in one call. |
 | `scry_scrub()` | Create a `<branch>--clean` git branch with all `@scry.*` markers stripped from non-agent files. |
-| `scry_script(action, script?, params?)` | Discover and run validation scripts from `src/scry/scripts/` and `agent/drivers/@<ns>/scry/scripts/`. |
+| `scry_script(action, script?, params?)` | Discover and run validation scripts from `src/scry/scripts/` and `.scry/scripts/`. |
 | `scry_db_health()` | Probe the project DB and report `status` ∈ {`ok`, `corrupt`, `locked`}, `integrity_check` result, and `scry__doc` row count. For substrate auto-restore loops that need to distinguish corruption from transient WAL write-lock contention. |
 
 ## Database schema
@@ -206,7 +216,7 @@ gitignored; after `git pull`, agents call `scry_surface` to rebuild.
 
 A daemon thread runs alongside the MCP server, watching the project tree
 with a 150 ms debounce window. A lock file at
-`agent/drivers/@<ns>/scry/runtime/lock` performs PID-based primary
+`.scry/runtime/lock` performs PID-based primary
 election so multiple sessions don't race writes. The primary instance
 runs a cold scan on startup; secondaries observe and wait.
 

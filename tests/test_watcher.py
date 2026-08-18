@@ -24,7 +24,7 @@ def test_circular_symlink_does_not_crash_watcher(tmp_path: Path):
     """
     project = tmp_path / "proj"
     (project / "agent" / "projects").mkdir(parents=True)
-    db_path = project / "agent" / "drivers" / "@local" / "scry" / "data" / "project.db"
+    db_path = project / ".scry" / "data" / "project.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     from scry.service.migration import run_migrations
@@ -89,7 +89,7 @@ def test_excluded_uses_relative_path(tmp_path: Path):
     # Simulate a project nested under a dotted ancestor dir (e.g. .acp)
     dotted_parent = tmp_path / ".acp" / "projects" / "myproject"
     (dotted_parent / "agent").mkdir(parents=True)
-    db_path = dotted_parent / "agent" / "drivers" / "@local" / "scry" / "data" / "project.db"
+    db_path = dotted_parent / ".scry" / "data" / "project.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
     from scry.service.migration import run_migrations
@@ -122,7 +122,7 @@ def test_excluded_uses_relative_path(tmp_path: Path):
 def test_watcher_smoke_indexes_existing_file(tmp_path: Path):
     project = tmp_path / "proj"
     (project / "agent").mkdir(parents=True)
-    db_path = project / "agent" / "drivers" / "@local" / "scry" / "data" / "project.db"
+    db_path = project / ".scry" / "data" / "project.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
     (project / "doc.md").write_text(
         "<!-- @scry.entry\nid: task.smoke~aaaaaaaa\nkind: task\nsummary: smoke\nstatus: draft\nweight: 0.1\n@scry.entry.end -->\n",

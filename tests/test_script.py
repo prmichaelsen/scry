@@ -13,10 +13,10 @@ def test_list_includes_bundled_validate_coverage():
 
 
 def test_run_script_executes_with_db(conn, monkeypatch, tmp_path: Path):
-    # Drop a driver-local script that just queries the DB.
-    drivers_dir = tmp_path / "agent" / "drivers" / "@local" / "scry" / "scripts"
-    drivers_dir.mkdir(parents=True, exist_ok=True)
-    (drivers_dir / "ping.py").write_text(
+    # Drop a project-local script that just queries the DB.
+    scripts_dir = tmp_path / ".scry" / "scripts"
+    scripts_dir.mkdir(parents=True, exist_ok=True)
+    (scripts_dir / "ping.py").write_text(
         'DESCRIPTION = "ping"\n\n'
         "def run(db, params):\n"
         "    n = db.execute(\"SELECT count(*) AS c FROM scry__doc\").fetchone()[\"c\"]\n"

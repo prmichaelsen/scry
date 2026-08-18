@@ -4,7 +4,7 @@
 id: design.scry-marker-off~f39cb13d
 kind: design
 summary: Decouples scry storage from ACP's agent/ dir by moving to .scry/, and adds marker_mode=off for markerless file-body indexing. Also: scry, marker-mode, off, readonly, .scry, storage, decouple, grep, indexing
-status: draft
+status: active
 weight: 0.7
 tags: [topic:storage, storage, topic:config, config, marker-mode, off, decouple, scry-grep]
 rationale: Scry storage currently lives under agent/drivers/@<ns>/scry/, forcing every scry consumer to adopt ACP's agent/ scaffold; this design frees scry to run on any project and to index files without requiring marker adoption.
@@ -18,7 +18,7 @@ updated: 2026-08-18
 
 **Concept**: Move scry storage to a self-contained `.scry/` directory and add a `marker_mode=off` value for markerless, grep-only operation
 **Created**: 2026-08-18
-**Status**: Draft
+**Status**: Implemented
 
 ---
 
@@ -228,6 +228,6 @@ runs in marker-off mode: no @scry.* markers are read or written.
 
 ---
 
-**Status**: Draft
-**Recommendation**: Review, then derive an implementation spec (`/acp-spec-create`) covering DR1–DR9.
+**Status**: Implemented
+**Recommendation**: Implemented directly from this design; no separate spec required.
 **Related Documents**: `agent/design/scry-architecture~draft.md`, `agent/specs/scry-marker-cache~draft.md`

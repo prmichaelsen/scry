@@ -22,6 +22,12 @@ def get_marker_mode() -> MarkerMode:
 def register_tools(mcp, *, marker_mode: MarkerMode = "inline") -> None:
     global _marker_mode
     _marker_mode = marker_mode
+    if marker_mode == "off":
+        # No markers: only file-body search, manual re-scan, and health.
+        mcp.tool()(scry_grep)
+        mcp.tool()(scry_surface)
+        mcp.tool()(scry_db_health)
+        return
     mcp.tool()(scry_sql)
     mcp.tool()(scry_mint)
     mcp.tool()(scry_mint_with_check)

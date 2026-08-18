@@ -35,7 +35,7 @@ HANDSHAKE_TIMEOUT_S = 5
 def _make_project(tmp_path: Path) -> Path:
     """Scaffold a minimal scry project in tmp_path."""
     project = tmp_path / "project"
-    db_dir = project / "agent" / "drivers" / "@local" / "scry" / "data"
+    db_dir = project / ".scry" / "data"
     db_dir.mkdir(parents=True)
     # One marker file so the cold scan has something to index.
     (project / "README.md").write_text(
