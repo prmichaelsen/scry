@@ -283,3 +283,36 @@ def test_sink_clears_scry_file(conn, project_tree):
 
     sink(conn)
     assert conn.execute("SELECT COUNT(*) FROM scry__file").fetchone()[0] == 0
+
+
+def test_surface_force_prunes_deleted_file_body(conn, project_tree):
+    """Regression: scry_grep must stop returning a file after it's deleted
+    from disk and scry_surface(force=True) is run. Body-index pruning must
+    work with no markers present (marker-off scenario)."""
+    f = project_tree / "notes" / "ghost.md"
+    _write(f, "This file mentions autopoiesis and will be deleted.\n")
+    surface(conn, project_root=project_tree)
+    assert any(h["path"] == "notes/ghost.md" for h in grep(conn, "autopoiesis")["hits"])
+
+    f.unlink()
+
+    # Non-force rescan leaves the body row (docs get soft-flagged only).
+    out = surface(conn, project_root=project_tree)
+    assert out["body_pruned"] == 0
+    assert any(h["path"] == "notes/ghost.md" for h in grep(conn, "autopoiesis")["hits"])
+
+    # Force rescan evicts the orphaned body row and reports it.
+    out = surface(conn, project_root=project_tree, force=True)
+    assert out["body_pruned"] == 1
+    assert all(h["path"] != "notes/ghost.md" for h in grep(conn, "autopoiesis")["hits"])
+
+
+def test_surface_force_keeps_existing_file_body(conn, project_tree):
+    """Force pruning must not evict body rows for files still on disk."""
+    f = project_tree / "notes" / "keep.md"
+    _write(f, "This file mentions autopoiesis and stays on disk.\n")
+    surface(conn, project_root=project_tree)
+
+    out = surface(conn, project_root=project_tree, force=True)
+    assert out["body_pruned"] == 0
+    assert any(h["path"] == "notes/keep.md" for h in grep(conn, "autopoiesis")["hits"])

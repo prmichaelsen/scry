@@ -4,7 +4,7 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.20.0] - 2026-08-18
+## [0.20.0] - 2026-08-24
 
 ### Added
 
@@ -40,6 +40,18 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   keeping the rebuildable cache (`data/`, `runtime/`) out of git even
   when scry is pointed at a project that never ran `scry init`.
   `config.toml` and `scripts/` remain committable.
+
+### Fixed
+
+- **`scry_surface(force=true)` now prunes orphaned file-body rows.**
+  Previously reconciliation only touched the `scry__doc` layer, so a
+  file deleted from disk left its `scry__file` / `scry__file_fts` row
+  in place and `scry_grep` kept returning the phantom hit — even after
+  a forced rescan. This was especially visible in marker-off mode,
+  where there are no docs to reconcile at all. `force=true` now hard-
+  deletes body rows whose path is absent from disk (scope-aware) and
+  reports the count in a new `body_pruned` field. The content-backed
+  FTS index is pruned automatically via its DELETE trigger.
 
 ### Migration
 

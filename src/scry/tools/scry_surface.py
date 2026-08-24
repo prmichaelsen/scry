@@ -15,8 +15,11 @@ async def scry_surface(force: bool = False, path: str | None = None) -> str:
     Idempotent. Uses content-hash dedup.
 
     Args:
-        force: If true, hard-deletes records whose files no longer exist.
-               If false (default), sets missing_since and warns.
+        force: If true, hard-deletes records whose files no longer exist —
+               both soft-deleted docs and orphaned file-body rows (so
+               scry_grep stops returning deleted files). Reported via
+               force_deleted and body_pruned. If false (default), sets
+               missing_since on docs and warns.
         path: Optional scope, relative to project root.
               None (default) — full corpus walk. Current behavior, unchanged.
               <file> — re-index exactly that one file.

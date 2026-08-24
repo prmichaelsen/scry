@@ -731,6 +731,30 @@ def surface(
             conn.execute("DELETE FROM scry__doc WHERE id = ?", (r["id"],))
             deleted.append({"table": "scry__doc", "id": r["id"]})
 
+    # Prune orphaned file-body rows whose source file is gone from disk.
+    # Gated on force, mirroring doc hard-deletion. Done independently of the
+    # doc layer so it also fixes marker-off mode, where there are no docs to
+    # reconcile. The content-backed scry__file_fts is pruned automatically by
+    # the DELETE trigger.
+    body_pruned = 0
+    if force:
+        if path is None:
+            body_rows = conn.execute("SELECT path FROM scry__file").fetchall()
+        elif scope_is_file:
+            body_rows = conn.execute(
+                "SELECT path FROM scry__file WHERE path = ?", (path,)
+            ).fetchall()
+        else:
+            body_rows = conn.execute(
+                "SELECT path FROM scry__file WHERE path = ? OR path LIKE ?",
+                (path, path + "/%"),
+            ).fetchall()
+
+        for r in body_rows:
+            if r["path"] not in visited_paths:
+                conn.execute("DELETE FROM scry__file WHERE path = ?", (r["path"],))
+                body_pruned += 1
+
     conn.commit()
 
     warnings = conn.execute(
@@ -749,6 +773,7 @@ def surface(
         "markers_indexed": counts["markers_indexed"],
         "flagged_missing": flagged,
         "force_deleted": deleted,
+        "body_pruned": body_pruned,
         "warnings": {"counts": warning_counts, "sample": sample, "hint": "query scry__warning for the full list"},
         "force": force,
     }
