@@ -158,7 +158,7 @@ class ScryWatcher:
     ) -> None:
         self.project_root = project_root or get_project_root()
         self.db_path = db_path or get_db_path()
-        self.lock = LockFile(get_lock_path())
+        self.lock = LockFile(get_lock_path(self.project_root))
         self.is_primary = False
         self._observer: Optional[Observer] = None
         self._debouncer = _Debouncer(debounce_ms, self._process_modify)

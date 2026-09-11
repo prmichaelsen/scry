@@ -4,6 +4,24 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.1] - 2026-09-10
+
+### Fixed
+
+- **Lock file now resolves against the watcher's `project_root`.**
+  `ScryWatcher` built its `LockFile` from `get_lock_path()` with no
+  argument, which falls back to the ambient project root
+  (`get_project_root()`) instead of the `project_root` the watcher was
+  constructed with. When scry was pointed at an explicit project, it
+  locked the wrong project's `.scry/runtime/lock` — so primary
+  election could fail against an unrelated lock holder and the cold
+  scan would be skipped, leaving the index empty.
+- **Pin `mcp<2.0`.** Fresh installs resolved `mcp==2.0.0`, which
+  restructured the package and dropped `mcp.server.fastmcp`, crashing
+  the server on boot with `ModuleNotFoundError`. The repo lockfile
+  pinned 1.27.0 so tests passed, masking the drift. Constrained to the
+  1.x line that provides FastMCP.
+
 ## [0.20.0] - 2026-08-24
 
 ### Added
