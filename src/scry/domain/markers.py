@@ -29,6 +29,13 @@ from scry_parse import BASELINE_STATUSES
 
 BLOCK_KINDS: tuple[str, ...] = ("entry", "anchor")
 
+# The scry-spec version this scry-mcp build is calibrated against.
+# Used by the B2 conformance test (tests/test_conformance.py) to verify
+# that PINNED_SCRY_SPEC_VERSION matches.  Bump this when implementing
+# features from a new scry-spec release and update tests/conformance/
+# per the bump procedure in tests/conformance/BUMPING.md.
+SCRY_SPEC_VERSION = "1.2.0"
+
 # scry-spec v1.2.0 baseline kinds (scry-mcp extends with "clarification").
 # Unknown kinds are preserved as-is per FR8 — these are only for UI hints.
 DOC_KIND_VALUES = (

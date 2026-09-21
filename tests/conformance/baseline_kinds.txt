@@ -1,0 +1,12 @@
+design
+pattern
+spec
+lesson
+internal
+task
+milestone
+report
+audit
+research
+code
+goal

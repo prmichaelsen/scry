@@ -1,0 +1,6 @@
+depends_on
+implements
+supersedes
+# satisfies — scry-spec v1.2.0 FR12; scry-mcp schema is ready but
+# scry-parse <1.2.0 does not expose the field, so the fixture cannot
+# be indexed yet. Re-add when scry-parse 1.2.0 ships.
