@@ -4,6 +4,17 @@ All notable changes to scry are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.1] - 2026-09-21
+
+### Changed
+
+- **Bump scry-parse to `>=1.2.1`** to pull in two conformance fixes
+  for scry-spec v1.2.0: `kind: goal` now recognized as a baseline kind
+  (no spurious "not in baseline kinds" warning), and INV-GOAL-COMPLETION
+  enforced (`status: met` on `kind: goal` yields `valid=False` +
+  explicit error). No scry-mcp code changes — the validator fix is in
+  scry-parse. 189/189 tests pass.
+
 ## [0.20.1] - 2026-09-10
 
 ### Fixed

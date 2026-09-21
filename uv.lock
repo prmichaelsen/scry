@@ -766,21 +766,21 @@ requires-dist = [
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "scry-parse", specifier = ">=1.2.0" },
+    { name = "scry-parse", specifier = ">=1.2.1" },
     { name = "watchdog", specifier = ">=4.0" },
 ]
 provides-extras = ["dev"]
 
 [[package]]
 name = "scry-parse"
-version = "1.2.0"
+version = "1.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/33/1f/040ecfdff931b5b0b97934d74f2fdc9413b5a475ffb51c2b8e355c29a6e9/scry_parse-1.2.0.tar.gz", hash = "sha256:0918dab36f4fd8404c84cefb39d27fa2ca3f077b1c916a9ff131e4326a9588e0", size = 41331, upload-time = "2026-09-21T19:48:52.452Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/89/ca/37ee444589644c95488c72aca854178db2ce22f0698eba29878ef326374a/scry_parse-1.2.1.tar.gz", hash = "sha256:a884746794209012f26b484f2591c625d202b9e14371d59d1ebf48e5eb7b3af7", size = 43903, upload-time = "2026-09-21T20:47:56.97Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/86/12/54f3dde5e20148c09bb56eb51a9a656eb9e889201db18ce05539949e2cdc/scry_parse-1.2.0-py3-none-any.whl", hash = "sha256:baea81374c63fd404b06b5794fdbd5bd9dc8f80a0fd0cd4d4440bd159435e74f", size = 17035, upload-time = "2026-09-21T19:48:51.432Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/6e/db4d6c12a21709ae77051706f58bfbc91cd66e06658fa5fba5f00d0a9253/scry_parse-1.2.1-py3-none-any.whl", hash = "sha256:ebd11ab29a0c8d1e04b11322c8bb835a17bb5524284bb5c37622dfea8cd1dcc2", size = 17399, upload-time = "2026-09-21T20:47:55.826Z" },
 ]
 
 [[package]]
